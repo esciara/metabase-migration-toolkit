@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "metabase-migration-toolkit"
@@ -45,25 +45,6 @@ dependencies = [
     "pydantic>=2.0.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov>=4.0.0",
-    "pytest-mock>=3.10.0",
-    "black>=23.0.0",
-    "ruff>=0.1.0",
-    "mypy>=1.0.0",
-    "types-requests>=2.28.0",
-    "pre-commit>=3.0.0",
-    "isort>=5.0.0",
-
-]
-docs = [
-    "sphinx>=5.0.0",
-    "sphinx-rtd-theme>=1.0.0",
-    "sphinx-autodoc-typehints>=1.19.0",
-]
-
 [project.urls]
 Homepage = "https://github.com/Finverity/metabase-migration-toolkit"
 Documentation = "https://github.com/Finverity/metabase-migration-toolkit#readme"
@@ -76,12 +57,46 @@ metabase-export = "export_metabase:main"
 metabase-import = "import_metabase:main"
 metabase-sync = "sync_metabase:main"
 
-[tool.setuptools]
-packages = ["lib"]
-py-modules = ["export_metabase", "import_metabase", "sync_metabase"]
+# ============================================================================
+# Dependency Groups (PEP 735)
+# ============================================================================
 
-[tool.setuptools.package-data]
-lib = ["py.typed"]
+[dependency-groups]
+dev = [
+    # Testing
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    # Formatting & Linting
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    # Type checking
+    "mypy>=1.0.0",
+    "types-requests>=2.28.0",
+    # Pre-commit
+    "pre-commit>=3.0.0",
+    # Import sorting
+    "isort>=5.0.0",
+]
+docs = [
+    "sphinx>=5.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+    "sphinx-autodoc-typehints>=1.19.0",
+]
+
+# ============================================================================
+# Hatchling Build Configuration
+# ============================================================================
+
+[tool.hatch.build.targets.wheel]
+packages = ["lib"]
+# Include top-level script modules in the wheel
+include = [
+    "lib/",
+    "export_metabase.py",
+    "import_metabase.py",
+    "sync_metabase.py",
+]
 
 # ============================================================================
 # Testing Configuration
@@ -93,16 +108,19 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
-    "--cov=metabase_migration",
+    "--cov=lib",
     "--cov-report=html",
     "--cov-report=term-missing",
     "--cov-report=xml",
+    "--cov-branch",
     "--strict-markers",
     "-v",
+    "--tb=short",
 ]
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "requires_api: Tests that require API access",
 ]
 
 # ============================================================================
@@ -167,7 +185,7 @@ ignore = [
 "tests/*" = ["N802", "N803"]  # allow non-lowercase function names in tests
 
 [tool.ruff.lint.isort]
-known-first-party = ["metabase_migration"]
+known-first-party = ["lib"]
 
 # ============================================================================
 # Type Checking Configuration
