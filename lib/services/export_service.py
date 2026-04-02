@@ -87,6 +87,11 @@ class ExportService:
         self.export_dir.mkdir(parents=True, exist_ok=True)
 
         try:
+            # Route to single card export if card_ids is specified
+            if self.config.card_ids:
+                self.run_export_single_cards()
+                return
+
             logger.info("Fetching source databases...")
             self._fetch_and_store_databases()
 
@@ -346,6 +351,84 @@ class ExportService:
                     "no collection_id (root collection)"
                 )
 
+    def _build_minimal_collection_tree(self, collection_id: int | None) -> None:
+        """Walk from collection_id up to root, registering each ancestor in the manifest.
+
+        This builds the minimal set of collections needed for a card export,
+        rather than traversing the entire collection tree.
+
+        Args:
+            collection_id: The collection ID to start from. If None, does nothing.
+        """
+        if collection_id is None or collection_id in self._processed_collections:
+            return
+
+        collection_data = self.client.get_collection(collection_id)
+        self._processed_collections.add(collection_id)
+
+        # Recurse to parent first (so path builds top-down)
+        parent_id = collection_data.get("parent_id")
+        if parent_id:
+            self._build_minimal_collection_tree(parent_id)
+
+        # Build path
+        parent_path = ""
+        if parent_id and parent_id in self._collection_path_map:
+            parent_path = self._collection_path_map[parent_id]
+
+        sanitized_name = sanitize_filename(collection_data["name"])
+        current_path = f"{parent_path}/{sanitized_name}".lstrip("/")
+        self._collection_path_map[collection_id] = current_path
+
+        # Create manifest entry
+        collection_obj = Collection(
+            id=collection_id,
+            name=collection_data["name"],
+            description=collection_data.get("description"),
+            slug=collection_data.get("slug"),
+            parent_id=parent_id,
+            personal_owner_id=collection_data.get("personal_owner_id"),
+            path=current_path,
+        )
+        self.manifest.collections.append(collection_obj)
+
+        # Write _collection.json
+        collection_meta_path = self.export_dir / current_path / "_collection.json"
+        write_json_file(collection_data, collection_meta_path)
+        logger.info(f"Added collection '{collection_data['name']}' to minimal tree")
+
+    def run_export_single_cards(self) -> None:
+        """Export specific cards by ID with their dependencies and minimal collection tree."""
+        logger.info(f"Exporting cards: {self.config.card_ids}")
+        self.export_dir.mkdir(parents=True, exist_ok=True)
+
+        for card_id in self.config.card_ids:
+            # Fetch card to discover its collection
+            card_data = self.client.get_card(card_id)
+            collection_id = card_data.get("collection_id")
+
+            # Build minimal collection tree (only ancestors, not siblings)
+            if collection_id:
+                self._build_minimal_collection_tree(collection_id)
+
+            # Export card with all dependencies (reuses existing logic)
+            base_path = (
+                self._collection_path_map.get(collection_id, "") if collection_id else ""
+            )
+            self._export_card_with_dependencies(card_id, base_path)
+
+        # Databases + manifest (reuse existing)
+        self._fetch_and_store_databases()
+        manifest_path = self.export_dir / "manifest.json"
+        write_json_file(self.manifest, manifest_path)
+
+        logger.info("=" * 80)
+        logger.info("Export Summary:")
+        logger.info(f"  Collections: {len(self.manifest.collections)}")
+        logger.info(f"  Cards: {len(self.manifest.cards)}")
+        logger.info(f"  Databases: {len(self.manifest.databases)}")
+        logger.info("=" * 80)
+
     @staticmethod
     def _extract_card_dependencies(card_data: dict) -> set[int]:
         """Extracts card IDs that this card depends on.
@@ -543,7 +626,7 @@ class ExportService:
                 return
 
             card_slug = sanitize_filename(card_data["name"])
-            file_path_str = f"{base_path}/cards/card_{card_id}_{card_slug}.json"
+            file_path_str = f"{base_path}/cards/card_{card_id}_{card_slug}.json".lstrip("/")
             file_path = self.export_dir / file_path_str
 
             write_json_file(card_data, file_path)

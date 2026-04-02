@@ -146,6 +146,7 @@ class ExportConfig(BaseModel):
     include_permissions: bool = False
     include_trash: bool = False
     root_collection_ids: list[int] | None = None
+    card_ids: list[int] | None = None
     log_level: str = "INFO"
 
     @field_validator("source_url")
@@ -191,6 +192,25 @@ class ExportConfig(BaseModel):
 
         return v
 
+    @field_validator("card_ids")
+    @classmethod
+    def validate_card_ids(cls, v: list[int] | None) -> list[int] | None:
+        """Validate that card IDs are positive integers."""
+        if v is None:
+            return v
+
+        if not v:
+            return None  # Empty list treated as None (no specific cards)
+
+        for i, card_id in enumerate(v):
+            if card_id <= 0:
+                raise ConfigValidationError(
+                    f"Card IDs must be positive integers, got {card_id} at index {i}",
+                    field="card_ids",
+                )
+
+        return v
+
     @model_validator(mode="after")
     def validate_authentication(self) -> "ExportConfig":
         """Validate that at least one authentication method is provided."""
@@ -226,6 +246,8 @@ class ImportConfig(BaseModel):
     dry_run: bool = False
     include_archived: bool = False
     apply_permissions: bool = False
+    card_ids: list[int] | None = None
+    dashboard_ids: list[int] | None = None
     log_level: str = "INFO"
 
     @field_validator("target_url")
@@ -269,6 +291,38 @@ class ImportConfig(BaseModel):
                 field="conflict_strategy",
             )
         return v_lower
+
+    @field_validator("card_ids")
+    @classmethod
+    def validate_card_ids(cls, v: list[int] | None) -> list[int] | None:
+        """Validate that card IDs are positive integers."""
+        if v is None:
+            return v
+        if not v:
+            return None  # Empty list treated as None (no specific cards)
+        for i, card_id in enumerate(v):
+            if card_id <= 0:
+                raise ConfigValidationError(
+                    f"Card IDs must be positive integers, got {card_id} at index {i}",
+                    field="card_ids",
+                )
+        return v
+
+    @field_validator("dashboard_ids")
+    @classmethod
+    def validate_dashboard_ids(cls, v: list[int] | None) -> list[int] | None:
+        """Validate that dashboard IDs are positive integers."""
+        if v is None:
+            return v
+        if not v:
+            return None  # Empty list treated as None (no specific dashboards)
+        for i, dashboard_id in enumerate(v):
+            if dashboard_id <= 0:
+                raise ConfigValidationError(
+                    f"Dashboard IDs must be positive integers, got {dashboard_id} at index {i}",
+                    field="dashboard_ids",
+                )
+        return v
 
     @model_validator(mode="after")
     def validate_authentication(self) -> "ImportConfig":
@@ -342,6 +396,10 @@ def get_export_args() -> ExportConfig:
         help="Comma-separated list of root collection IDs to export (empty=all)",
     )
     parser.add_argument(
+        "--card-ids",
+        help="Comma-separated list of card IDs to export",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -373,6 +431,14 @@ def get_export_args() -> ExportConfig:
                 f"--root-collections must be comma-separated integers, got '{args.root_collections}'"
             )
 
+    # Parse card IDs
+    card_ids: list[int] | None = None
+    if args.card_ids:
+        try:
+            card_ids = [int(c_id.strip()) for c_id in args.card_ids.split(",")]
+        except ValueError:
+            parser.error(f"--card-ids must be comma-separated integers, got '{args.card_ids}'")
+
     # Create config object with validation
     try:
         return ExportConfig(
@@ -388,6 +454,7 @@ def get_export_args() -> ExportConfig:
             include_permissions=args.include_permissions,
             include_trash=args.include_trash,
             root_collection_ids=root_collection_ids,
+            card_ids=card_ids,
             log_level=args.log_level,
         )
     except ConfigValidationError as e:
@@ -469,6 +536,14 @@ def get_import_args() -> ImportConfig:
         help="Apply permissions from the export (requires admin privileges)",
     )
     parser.add_argument(
+        "--card-ids",
+        help="Comma-separated list of card IDs to import (imports only these + dependencies)",
+    )
+    parser.add_argument(
+        "--dashboard-ids",
+        help="Comma-separated list of dashboard IDs to import (imports only these + their cards)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -490,6 +565,24 @@ def get_import_args() -> ImportConfig:
     except ValueError as e:
         parser.error(str(e))  # parser.error() raises SystemExit, never returns
 
+    # Parse card IDs
+    card_ids: list[int] | None = None
+    if args.card_ids:
+        try:
+            card_ids = [int(c_id.strip()) for c_id in args.card_ids.split(",")]
+        except ValueError:
+            parser.error(f"--card-ids must be comma-separated integers, got '{args.card_ids}'")
+
+    # Parse dashboard IDs
+    dashboard_ids: list[int] | None = None
+    if args.dashboard_ids:
+        try:
+            dashboard_ids = [int(d_id.strip()) for d_id in args.dashboard_ids.split(",")]
+        except ValueError:
+            parser.error(
+                f"--dashboard-ids must be comma-separated integers, got '{args.dashboard_ids}'"
+            )
+
     # Create config object with validation
     try:
         return ImportConfig(
@@ -506,6 +599,8 @@ def get_import_args() -> ImportConfig:
             dry_run=args.dry_run,
             include_archived=args.include_archived,
             apply_permissions=args.apply_permissions,
+            card_ids=card_ids,
+            dashboard_ids=dashboard_ids,
             log_level=args.log_level,
         )
     except ConfigValidationError as e:

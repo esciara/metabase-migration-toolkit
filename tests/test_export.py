@@ -960,3 +960,349 @@ class TestExportCardEdgeCases:
 
             assert len(exporter.manifest.cards) == 1
             assert exporter.manifest.cards[0].dataset is True
+
+
+class TestBuildMinimalCollectionTree:
+    """Test suite for _build_minimal_collection_tree method."""
+
+    def test_build_tree_single_collection(self, tmp_path):
+        """Test building minimal tree for a card in a root-level collection."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+            card_ids=[100],
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+            mock_client.get_collection.return_value = {
+                "id": 5,
+                "name": "Analytics",
+                "description": "Analytics collection",
+                "slug": "analytics",
+                "parent_id": None,
+                "personal_owner_id": None,
+            }
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+            exporter.export_dir.mkdir(parents=True, exist_ok=True)
+            exporter._build_minimal_collection_tree(5)
+
+            assert len(exporter.manifest.collections) == 1
+            assert exporter.manifest.collections[0].id == 5
+            assert exporter.manifest.collections[0].name == "Analytics"
+            assert exporter.manifest.collections[0].parent_id is None
+            assert 5 in exporter._collection_path_map
+            assert exporter._collection_path_map[5] == "Analytics"
+
+    def test_build_tree_nested_collection(self, tmp_path):
+        """Test building minimal tree for a card in a nested collection (2 levels)."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+            card_ids=[100],
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+
+            # Collection 5 has parent 2, collection 2 is root
+            def get_collection_side_effect(collection_id):
+                collections = {
+                    5: {
+                        "id": 5,
+                        "name": "Reports",
+                        "description": None,
+                        "slug": "reports",
+                        "parent_id": 2,
+                        "personal_owner_id": None,
+                    },
+                    2: {
+                        "id": 2,
+                        "name": "Marketing",
+                        "description": None,
+                        "slug": "marketing",
+                        "parent_id": None,
+                        "personal_owner_id": None,
+                    },
+                }
+                return collections[collection_id]
+
+            mock_client.get_collection.side_effect = get_collection_side_effect
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+            exporter.export_dir.mkdir(parents=True, exist_ok=True)
+            exporter._build_minimal_collection_tree(5)
+
+            # Should have both collections
+            assert len(exporter.manifest.collections) == 2
+            collection_ids = [c.id for c in exporter.manifest.collections]
+            assert 2 in collection_ids
+            assert 5 in collection_ids
+
+            # Check paths are correct
+            assert exporter._collection_path_map[2] == "Marketing"
+            assert exporter._collection_path_map[5] == "Marketing/Reports"
+
+    def test_build_tree_skips_already_processed(self, tmp_path):
+        """Test that _build_minimal_collection_tree skips already processed collections."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+            card_ids=[100],
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+            exporter._processed_collections.add(5)
+
+            exporter._build_minimal_collection_tree(5)
+
+            # Should not call API since collection is already processed
+            mock_client.get_collection.assert_not_called()
+
+    def test_build_tree_none_collection_id(self, tmp_path):
+        """Test that _build_minimal_collection_tree does nothing for None collection_id."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+            card_ids=[100],
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+            exporter._build_minimal_collection_tree(None)
+
+            mock_client.get_collection.assert_not_called()
+            assert len(exporter.manifest.collections) == 0
+
+
+class TestRunExportSingleCards:
+    """Test suite for run_export_single_cards method."""
+
+    def test_export_single_card_with_collection(self, tmp_path):
+        """Test exporting a single card produces correct manifest with its collection."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+            card_ids=[100],
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+
+            # Card 100 is in collection 5, which has parent 2
+            mock_client.get_card.return_value = {
+                "id": 100,
+                "name": "Monthly Revenue",
+                "collection_id": 5,
+                "database_id": 1,
+                "dataset_query": {
+                    "database": 1,
+                    "type": "query",
+                    "query": {"source-table": 10},
+                },
+            }
+
+            def get_collection_side_effect(collection_id):
+                collections = {
+                    5: {
+                        "id": 5,
+                        "name": "Reports",
+                        "description": None,
+                        "slug": "reports",
+                        "parent_id": 2,
+                        "personal_owner_id": None,
+                    },
+                    2: {
+                        "id": 2,
+                        "name": "Marketing",
+                        "description": None,
+                        "slug": "marketing",
+                        "parent_id": None,
+                        "personal_owner_id": None,
+                    },
+                }
+                return collections[collection_id]
+
+            mock_client.get_collection.side_effect = get_collection_side_effect
+            mock_client.get_databases.return_value = [{"id": 1, "name": "DB1"}]
+            mock_client.get_database_metadata.return_value = {"tables": []}
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+            exporter.run_export()
+
+            # Should have 1 card, 2 collections, databases populated
+            assert len(exporter.manifest.cards) == 1
+            assert exporter.manifest.cards[0].id == 100
+            assert exporter.manifest.cards[0].name == "Monthly Revenue"
+
+            assert len(exporter.manifest.collections) == 2
+            collection_ids = [c.id for c in exporter.manifest.collections]
+            assert 2 in collection_ids
+            assert 5 in collection_ids
+
+            assert exporter.manifest.databases == {1: "DB1"}
+
+            # Manifest file should have been written
+            manifest_path = tmp_path / "export" / "manifest.json"
+            assert manifest_path.exists()
+
+    def test_export_single_card_no_collection(self, tmp_path):
+        """Test exporting a card with no collection (root collection)."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+            card_ids=[100],
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+
+            mock_client.get_card.return_value = {
+                "id": 100,
+                "name": "Root Card",
+                "collection_id": None,
+                "database_id": 1,
+                "dataset_query": {
+                    "database": 1,
+                    "type": "query",
+                    "query": {"source-table": 10},
+                },
+            }
+
+            mock_client.get_databases.return_value = [{"id": 1, "name": "DB1"}]
+            mock_client.get_database_metadata.return_value = {"tables": []}
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+            exporter.run_export()
+
+            # Should have 1 card, 0 collections
+            assert len(exporter.manifest.cards) == 1
+            assert exporter.manifest.cards[0].id == 100
+            assert len(exporter.manifest.collections) == 0
+
+    def test_export_multiple_cards(self, tmp_path):
+        """Test exporting multiple cards at once."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+            card_ids=[100, 200],
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+
+            def get_card_side_effect(card_id):
+                cards = {
+                    100: {
+                        "id": 100,
+                        "name": "Card A",
+                        "collection_id": 5,
+                        "database_id": 1,
+                        "dataset_query": {
+                            "database": 1,
+                            "type": "query",
+                            "query": {"source-table": 10},
+                        },
+                    },
+                    200: {
+                        "id": 200,
+                        "name": "Card B",
+                        "collection_id": 5,
+                        "database_id": 1,
+                        "dataset_query": {
+                            "database": 1,
+                            "type": "query",
+                            "query": {"source-table": 11},
+                        },
+                    },
+                }
+                return cards[card_id]
+
+            mock_client.get_card.side_effect = get_card_side_effect
+            mock_client.get_collection.return_value = {
+                "id": 5,
+                "name": "Reports",
+                "description": None,
+                "slug": "reports",
+                "parent_id": None,
+                "personal_owner_id": None,
+            }
+            mock_client.get_databases.return_value = [{"id": 1, "name": "DB1"}]
+            mock_client.get_database_metadata.return_value = {"tables": []}
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+            exporter.run_export()
+
+            # Should have 2 cards, 1 collection (shared)
+            assert len(exporter.manifest.cards) == 2
+            card_ids = [c.id for c in exporter.manifest.cards]
+            assert 100 in card_ids
+            assert 200 in card_ids
+
+            # Collection should only appear once
+            assert len(exporter.manifest.collections) == 1
+            assert exporter.manifest.collections[0].id == 5
+
+    def test_run_export_routes_to_single_cards(self, tmp_path):
+        """Test that run_export routes to run_export_single_cards when card_ids is set."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+            card_ids=[100],
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+
+            with patch.object(exporter, "run_export_single_cards") as mock_single:
+                exporter.run_export()
+
+                # Should route to single card export
+                mock_single.assert_called_once()
+
+                # Should NOT call collection tree
+                mock_client.get_collections_tree.assert_not_called()
+
+    def test_run_export_normal_when_no_card_ids(self, tmp_path):
+        """Test that run_export uses normal flow when card_ids is None."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+            mock_client.get_databases.return_value = []
+            mock_client.get_collections_tree.return_value = []
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+            exporter.run_export()
+
+            # Should call the normal collection tree path
+            mock_client.get_collections_tree.assert_called_once()

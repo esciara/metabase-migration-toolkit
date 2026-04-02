@@ -257,6 +257,77 @@ class TestExportConfigValidation:
         assert "extra" in str(exc_info.value).lower()
 
 
+class TestExportConfigCardIds:
+    """Test suite for card_ids validation in ExportConfig."""
+
+    def test_card_ids_valid(self):
+        """Test ExportConfig with valid card IDs."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir="./export",
+            source_session_token="token123",
+            card_ids=[1, 2, 3],
+        )
+
+        assert config.card_ids == [1, 2, 3]
+
+    def test_card_ids_none_by_default(self):
+        """Test that card_ids defaults to None."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir="./export",
+            source_session_token="token123",
+        )
+
+        assert config.card_ids is None
+
+    def test_card_ids_empty_list_becomes_none(self):
+        """Test that empty card_ids list becomes None."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir="./export",
+            source_session_token="token123",
+            card_ids=[],
+        )
+
+        assert config.card_ids is None
+
+    def test_card_ids_negative_rejected(self):
+        """Test that negative card IDs are rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            ExportConfig(
+                source_url="https://example.com",
+                export_dir="./export",
+                source_session_token="token123",
+                card_ids=[1, -2, 3],
+            )
+
+        assert "positive" in str(exc_info.value).lower()
+
+    def test_card_ids_zero_rejected(self):
+        """Test that zero card IDs are rejected."""
+        with pytest.raises(ValidationError) as exc_info:
+            ExportConfig(
+                source_url="https://example.com",
+                export_dir="./export",
+                source_session_token="token123",
+                card_ids=[0],
+            )
+
+        assert "positive" in str(exc_info.value).lower()
+
+    def test_card_ids_single_id(self):
+        """Test ExportConfig with a single card ID."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir="./export",
+            source_session_token="token123",
+            card_ids=[42],
+        )
+
+        assert config.card_ids == [42]
+
+
 class TestImportConfig:
     """Test suite for ImportConfig Pydantic model."""
 
@@ -386,6 +457,135 @@ class TestImportConfigValidation:
             )
 
         assert "authentication" in str(exc_info.value).lower()
+
+
+class TestImportConfigCardIds:
+    """Test suite for card_ids validation in ImportConfig."""
+
+    def test_card_ids_valid(self):
+        """Test valid card IDs."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+            card_ids=[1, 2, 3],
+        )
+        assert config.card_ids == [1, 2, 3]
+
+    def test_card_ids_none_by_default(self):
+        """Test that card_ids defaults to None."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+        )
+        assert config.card_ids is None
+
+    def test_card_ids_empty_list_becomes_none(self):
+        """Test that empty card_ids list becomes None."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+            card_ids=[],
+        )
+        assert config.card_ids is None
+
+    def test_card_ids_negative_rejected(self):
+        """Test that negative card IDs are rejected."""
+        with pytest.raises(ValidationError):
+            ImportConfig(
+                target_url="https://example.com",
+                export_dir="./export",
+                db_map_path="./db_map.json",
+                target_session_token="token123",
+                card_ids=[1, -2, 3],
+            )
+
+    def test_card_ids_zero_rejected(self):
+        """Test that zero card ID is rejected."""
+        with pytest.raises(ValidationError):
+            ImportConfig(
+                target_url="https://example.com",
+                export_dir="./export",
+                db_map_path="./db_map.json",
+                target_session_token="token123",
+                card_ids=[0],
+            )
+
+    def test_card_ids_single_id(self):
+        """Test single card ID."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+            card_ids=[42],
+        )
+        assert config.card_ids == [42]
+
+
+class TestImportConfigDashboardIds:
+    """Test suite for dashboard_ids validation in ImportConfig."""
+
+    def test_dashboard_ids_valid(self):
+        """Test valid dashboard IDs."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+            dashboard_ids=[10, 20],
+        )
+        assert config.dashboard_ids == [10, 20]
+
+    def test_dashboard_ids_none_by_default(self):
+        """Test that dashboard_ids defaults to None."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+        )
+        assert config.dashboard_ids is None
+
+    def test_dashboard_ids_empty_list_becomes_none(self):
+        """Test that empty dashboard_ids list becomes None."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+            dashboard_ids=[],
+        )
+        assert config.dashboard_ids is None
+
+    def test_dashboard_ids_negative_rejected(self):
+        """Test that negative dashboard IDs are rejected."""
+        with pytest.raises(ValidationError):
+            ImportConfig(
+                target_url="https://example.com",
+                export_dir="./export",
+                db_map_path="./db_map.json",
+                target_session_token="token123",
+                dashboard_ids=[-5],
+            )
+
+    def test_both_card_and_dashboard_ids(self):
+        """Test that both card_ids and dashboard_ids can be set together."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+            card_ids=[1, 2],
+            dashboard_ids=[10, 20],
+        )
+        assert config.card_ids == [1, 2]
+        assert config.dashboard_ids == [10, 20]
 
 
 class TestValidationHelpers:
@@ -544,6 +744,51 @@ class TestGetExportArgs:
         # CLI session token should be used
         assert config.source_session_token == "session-token"
 
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(
+        "sys.argv",
+        [
+            "export_metabase.py",
+            "--source-url",
+            "https://cli.example.com",
+            "--source-session",
+            "session-token",
+            "--export-dir",
+            "./cli_export",
+            "--card-ids",
+            "100,200,300",
+        ],
+    )
+    def test_get_export_args_with_card_ids(self):
+        """Test loading export config with --card-ids from CLI."""
+        from lib.config import get_export_args
+
+        config = get_export_args()
+
+        assert config.card_ids == [100, 200, 300]
+        assert config.export_dir == "./cli_export"
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(
+        "sys.argv",
+        [
+            "export_metabase.py",
+            "--source-url",
+            "https://cli.example.com",
+            "--source-session",
+            "session-token",
+            "--export-dir",
+            "./cli_export",
+        ],
+    )
+    def test_get_export_args_card_ids_defaults_none(self):
+        """Test that card_ids defaults to None when not provided."""
+        from lib.config import get_export_args
+
+        config = get_export_args()
+
+        assert config.card_ids is None
+
 
 class TestGetImportArgs:
     """Test suite for get_import_args function."""
@@ -634,6 +879,80 @@ class TestGetImportArgs:
         assert config.target_url == "https://cli.example.com"
         # CLI session token should be used
         assert config.target_session_token == "session-token"
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(
+        "sys.argv",
+        [
+            "import_metabase.py",
+            "--target-url",
+            "https://cli.example.com",
+            "--target-session",
+            "session-token",
+            "--export-dir",
+            "./test_export",
+            "--db-map",
+            "./db_map.json",
+            "--card-ids",
+            "100,200,300",
+        ],
+    )
+    def test_get_import_args_with_card_ids(self):
+        """Test loading import config with card IDs from CLI."""
+        from lib.config import get_import_args
+
+        config = get_import_args()
+
+        assert config.card_ids == [100, 200, 300]
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(
+        "sys.argv",
+        [
+            "import_metabase.py",
+            "--target-url",
+            "https://cli.example.com",
+            "--target-session",
+            "session-token",
+            "--export-dir",
+            "./test_export",
+            "--db-map",
+            "./db_map.json",
+            "--dashboard-ids",
+            "10,20",
+        ],
+    )
+    def test_get_import_args_with_dashboard_ids(self):
+        """Test loading import config with dashboard IDs from CLI."""
+        from lib.config import get_import_args
+
+        config = get_import_args()
+
+        assert config.dashboard_ids == [10, 20]
+
+    @patch.dict(os.environ, {}, clear=True)
+    @patch(
+        "sys.argv",
+        [
+            "import_metabase.py",
+            "--target-url",
+            "https://cli.example.com",
+            "--target-session",
+            "session-token",
+            "--export-dir",
+            "./test_export",
+            "--db-map",
+            "./db_map.json",
+        ],
+    )
+    def test_get_import_args_card_ids_defaults_none(self):
+        """Test that card_ids and dashboard_ids default to None when not provided."""
+        from lib.config import get_import_args
+
+        config = get_import_args()
+
+        assert config.card_ids is None
+        assert config.dashboard_ids is None
 
 
 class TestImportConfigUnmappedIds:
