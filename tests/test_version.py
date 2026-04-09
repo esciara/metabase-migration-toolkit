@@ -213,6 +213,13 @@ class TestVersionConfig:
         assert "id" in config.immutable_fields
         assert "created_at" in config.immutable_fields
         assert "creator_id" in config.immutable_fields
+        # Dashboard reference fields (bug fix for collection_id mismatch)
+        assert "dashboard_id" in config.immutable_fields
+        assert "dashboard" in config.immutable_fields
+        assert "dashboard_count" in config.immutable_fields
+        # Server-internal
+        assert "entity_id" in config.immutable_fields
+        assert "legacy_query" in config.immutable_fields
 
 
 class TestV56Adapter:
@@ -436,7 +443,8 @@ class TestV58Adapter:
         assert result["name"] == "Test Card"
         assert result["table_id"] is None
         assert result["dashboard_tab_id"] is None
-        assert result["entity_id"] is None
+        # entity_id is stripped by IMMUTABLE_FIELDS (server-generated UUID)
+        assert "entity_id" not in result
         assert result["parameter_mappings"] is None
 
     def test_transform_card_nulls_only_present_fields(self):

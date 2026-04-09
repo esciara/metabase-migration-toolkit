@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from lib.constants import MetabaseVersion
+from lib.constants import IMMUTABLE_FIELDS, MetabaseVersion
 
 logger = logging.getLogger("metabase_migration")
 
@@ -160,21 +160,7 @@ class VersionConfig:
     dashboard_config: DashboardConfig
 
     # Immutable fields to remove when creating new items via API
-    immutable_fields: frozenset[str] = field(
-        default_factory=lambda: frozenset(
-            {
-                "id",
-                "creator_id",
-                "creator",
-                "created_at",
-                "updated_at",
-                "made_public_by_id",
-                "public_uuid",
-                "moderation_reviews",
-                "can_write",
-            }
-        )
-    )
+    immutable_fields: frozenset[str] = field(default_factory=lambda: IMMUTABLE_FIELDS)
 
 
 # =============================================================================

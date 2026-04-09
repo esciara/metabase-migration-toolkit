@@ -11,6 +11,7 @@ from lib.constants import (
     CONFLICT_SKIP,
     DASHCARD_EXCLUDED_FIELDS,
     DASHCARD_POSITION_FIELDS,
+    IMMUTABLE_FIELDS,
 )
 from lib.errors import MappingError, MigrationError
 from lib.handlers.base import BaseHandler, ImportContext
@@ -519,19 +520,10 @@ class DashboardHandler(BaseHandler):
                 )
             )
 
-        # Remove immutable fields that shouldn't be sent on import
-        immutable_fields = [
-            "creator_id",
-            "creator",
-            "created_at",
-            "updated_at",
-            "made_public_by_id",
-            "public_uuid",
-            "moderation_reviews",
-            "can_write",
-            "entity_id",
-        ]
-        for field in immutable_fields:
+        # Remove immutable fields that shouldn't be sent on import.
+        # Keep "id" (remapped card reference) and "database_id" (remapped above).
+        embedded_card_keep = {"id", "database_id"}
+        for field in IMMUTABLE_FIELDS - embedded_card_keep:
             remapped_card.pop(field, None)
 
         return remapped_card

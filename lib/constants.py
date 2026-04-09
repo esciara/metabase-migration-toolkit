@@ -72,9 +72,13 @@ FIELD_CONTAINING_CLAUSES = (
     "expressions",
 )
 
-# Fields to remove when creating new items via API
+# Fields to remove when creating new items via API.
+# These are read-only or server-computed fields that the Metabase API rejects
+# or ignores on POST/PUT requests. The export saves the full GET response,
+# so we must strip these before sending payloads.
 IMMUTABLE_FIELDS = frozenset(
     {
+        # Core server-assigned identifiers
         "id",
         "creator_id",
         "creator",
@@ -84,6 +88,37 @@ IMMUTABLE_FIELDS = frozenset(
         "public_uuid",
         "moderation_reviews",
         "can_write",
+        # Dashboard references (read-only, managed via dashcards)
+        # Sending dashboard_id causes 400 when collection_id doesn't match
+        # the dashboard's collection.
+        "dashboard_id",
+        "dashboard",
+        "dashboard_count",
+        # Server-computed statistics
+        "average_query_time",
+        "cache_invalidated_at",
+        "last_query_start",
+        "last_used_at",
+        "last-edit-info",
+        "view_count",
+        # Permission / capability flags (computed per-user)
+        "can_delete",
+        "can_manage_db",
+        "can_restore",
+        "can_run_adhoc_query",
+        # Server-internal metadata
+        "archived_directly",
+        "card_schema",
+        "collection",  # nested read-only object; collection_id is the writable field
+        "dependency_analysis_version",
+        "document_id",
+        "entity_id",
+        "initially_published_at",
+        "is_remote_synced",
+        "legacy_query",
+        "metabase_version",
+        "parameter_usage_count",
+        "query_type",
     }
 )
 

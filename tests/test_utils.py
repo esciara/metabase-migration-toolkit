@@ -579,6 +579,212 @@ class TestCleanForCreateTableId:
         assert cleaned["name"] == "Test Card"
 
 
+class TestCleanForCreateSourceCardId:
+    """Test suite for clean_for_create handling of source_card_id."""
+
+    def test_clean_sets_source_card_id_to_null(self):
+        """Test that clean_for_create sets source_card_id to null."""
+        payload = {
+            "name": "Test Card",
+            "source_card_id": 456,
+            "dataset_query": {},
+        }
+        cleaned = clean_for_create(payload)
+
+        assert cleaned["source_card_id"] is None
+        assert cleaned["name"] == "Test Card"
+
+    def test_clean_preserves_absent_source_card_id(self):
+        """Test that clean_for_create works without source_card_id field."""
+        payload = {
+            "name": "Test Card",
+            "dataset_query": {},
+        }
+        cleaned = clean_for_create(payload)
+
+        assert "source_card_id" not in cleaned
+
+    def test_clean_sets_null_source_card_id_to_null(self):
+        """Test that clean_for_create keeps source_card_id as None when already None."""
+        payload = {
+            "name": "Test Card",
+            "source_card_id": None,
+            "dataset_query": {},
+        }
+        cleaned = clean_for_create(payload)
+
+        assert cleaned["source_card_id"] is None
+
+
+class TestCleanForCreateDashboardFields:
+    """Test suite for clean_for_create stripping dashboard reference fields."""
+
+    def test_clean_removes_dashboard_id(self):
+        """Test that dashboard_id is stripped (prevents collection_id mismatch errors)."""
+        payload = {
+            "name": "Test Card",
+            "collection_id": 730,
+            "dashboard_id": 45,
+            "dataset_query": {},
+        }
+        cleaned = clean_for_create(payload)
+
+        assert "dashboard_id" not in cleaned
+        assert cleaned["collection_id"] == 730
+
+    def test_clean_removes_dashboard_object(self):
+        """Test that nested dashboard object is stripped."""
+        payload = {
+            "name": "Test Card",
+            "dashboard": {"name": "My Dashboard", "id": 45, "moderation_status": None},
+            "dataset_query": {},
+        }
+        cleaned = clean_for_create(payload)
+
+        assert "dashboard" not in cleaned
+
+    def test_clean_removes_dashboard_count(self):
+        """Test that dashboard_count is stripped."""
+        payload = {
+            "name": "Test Card",
+            "dashboard_count": 3,
+            "dataset_query": {},
+        }
+        cleaned = clean_for_create(payload)
+
+        assert "dashboard_count" not in cleaned
+
+
+class TestCleanForCreateServerComputedFields:
+    """Test suite for clean_for_create stripping server-computed fields."""
+
+    def test_clean_removes_permission_flags(self):
+        """Test that permission/capability flags are stripped."""
+        payload = {
+            "name": "Test Card",
+            "can_delete": False,
+            "can_manage_db": True,
+            "can_restore": False,
+            "can_run_adhoc_query": True,
+            "dataset_query": {},
+        }
+        cleaned = clean_for_create(payload)
+
+        assert "can_delete" not in cleaned
+        assert "can_manage_db" not in cleaned
+        assert "can_restore" not in cleaned
+        assert "can_run_adhoc_query" not in cleaned
+
+    def test_clean_removes_stats_fields(self):
+        """Test that server-computed statistics are stripped."""
+        payload = {
+            "name": "Test Card",
+            "average_query_time": 3009.68,
+            "cache_invalidated_at": "2025-08-06T14:06:27Z",
+            "last_query_start": "2025-10-03T09:05:28Z",
+            "last_used_at": "2025-10-03T09:05:29Z",
+            "last-edit-info": {"id": 256, "email": "bot@example.com"},
+            "view_count": 1881,
+            "dataset_query": {},
+        }
+        cleaned = clean_for_create(payload)
+
+        assert "average_query_time" not in cleaned
+        assert "cache_invalidated_at" not in cleaned
+        assert "last_query_start" not in cleaned
+        assert "last_used_at" not in cleaned
+        assert "last-edit-info" not in cleaned
+        assert "view_count" not in cleaned
+
+    def test_clean_removes_server_internal_metadata(self):
+        """Test that server-internal metadata fields are stripped."""
+        payload = {
+            "name": "Test Card",
+            "archived_directly": False,
+            "card_schema": 23,
+            "collection": {"id": 166, "name": "Test Collection"},
+            "dependency_analysis_version": 3,
+            "document_id": None,
+            "entity_id": None,
+            "initially_published_at": None,
+            "is_remote_synced": False,
+            "legacy_query": '{"type":"native"}',
+            "metabase_version": None,
+            "parameter_usage_count": 0,
+            "query_type": "native",
+            "dataset_query": {},
+        }
+        cleaned = clean_for_create(payload)
+
+        for field in [
+            "archived_directly",
+            "card_schema",
+            "collection",
+            "dependency_analysis_version",
+            "document_id",
+            "entity_id",
+            "initially_published_at",
+            "is_remote_synced",
+            "legacy_query",
+            "metabase_version",
+            "parameter_usage_count",
+            "query_type",
+        ]:
+            assert field not in cleaned, f"Expected '{field}' to be stripped"
+
+    def test_clean_preserves_writable_fields(self):
+        """Test that writable fields survive cleaning with a realistic payload."""
+        payload = {
+            # Writable fields that must be preserved
+            "name": "[Archive] - Réseaux : liste magasins",
+            "description": None,
+            "collection_id": 730,
+            "archived": False,
+            "type": "question",
+            "database_id": 2,
+            "dataset_query": {"lib/type": "mbql/query", "database": 2},
+            "display": "table",
+            "visualization_settings": {"table.pivot_column": "x"},
+            "parameters": [{"id": "abc", "type": "category"}],
+            "parameter_mappings": None,
+            "cache_ttl": None,
+            "enable_embedding": False,
+            "embedding_params": None,
+            "collection_position": None,
+            "collection_preview": True,
+            "result_metadata": [{"name": "col1"}],
+            # Read-only fields that must be stripped
+            "id": 622,
+            "dashboard_id": 45,
+            "dashboard": {"name": "TdB Réseaux", "id": 45},
+            "dashboard_count": 1,
+            "view_count": 1881,
+            "can_delete": False,
+            "entity_id": None,
+            "legacy_query": '{"type":"native"}',
+        }
+        cleaned = clean_for_create(payload)
+
+        # Writable fields preserved
+        assert cleaned["name"] == "[Archive] - Réseaux : liste magasins"
+        assert cleaned["collection_id"] == 730
+        assert cleaned["database_id"] == 2
+        assert cleaned["display"] == "table"
+        assert cleaned["visualization_settings"] == {"table.pivot_column": "x"}
+        assert cleaned["result_metadata"] == [{"name": "col1"}]
+        assert cleaned["type"] == "question"
+
+        # Read-only fields stripped
+        assert "id" not in cleaned
+        assert "dashboard_id" not in cleaned
+        assert "dashboard" not in cleaned
+        assert "dashboard_count" not in cleaned
+        assert "view_count" not in cleaned
+        assert "can_delete" not in cleaned
+        assert "entity_id" not in cleaned
+        assert "legacy_query" not in cleaned
+
+
 class TestSetupLoggingAdvanced:
     """Additional test cases for setup_logging function."""
 

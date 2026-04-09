@@ -36,6 +36,12 @@ def clean_for_create(payload: dict[str, Any]) -> dict[str, Any]:
     if "table_id" in cleaned:
         cleaned["table_id"] = None
 
+    # Set source_card_id to null - it references a card on the source instance.
+    # QueryRemapper handles source-card references inside dataset_query, but this
+    # top-level field is instance-specific and Metabase auto-populates it.
+    if "source_card_id" in cleaned:
+        cleaned["source_card_id"] = None
+
     # Ensure 'type' field is set correctly for cards based on 'dataset' field
     # In Metabase v56+, cards with dataset=True must have type='model'
     # This is critical for models to be properly recognized after import
