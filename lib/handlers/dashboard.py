@@ -142,6 +142,17 @@ class DashboardHandler(BaseHandler):
                 e.source_type,
             )
             source_id = e.source_id if e.source_id is not None else 0
+            source_db_id = getattr(e, "source_db_id", None)
+            source_context: str | None = None
+            if source_db_id is not None:
+                if id_type == "field":
+                    source_context = self.id_mapper.get_source_field_context(
+                        source_db_id, source_id
+                    )
+                elif id_type == "table":
+                    source_context = self.id_mapper.get_source_table_context(
+                        source_db_id, source_id
+                    )
             self.context.unmapped_id_collector.record(
                 id_type=id_type,
                 source_id=source_id,
@@ -150,7 +161,8 @@ class DashboardHandler(BaseHandler):
                 entity_name=dash.name,
                 location=e.location or "unknown",
                 action="skipped",
-                source_database_id=getattr(e, "source_db_id", None),
+                source_database_id=source_db_id,
+                source_context=source_context,
             )
             self._add_report_item(
                 "dashboard",
