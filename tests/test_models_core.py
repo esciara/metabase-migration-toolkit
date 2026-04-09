@@ -209,22 +209,33 @@ class TestUnmappedIDCollectorToReportDict:
 
         report = collector.to_report_dict()
 
+        # New structure: top-level by_type wrapper
+        assert "by_type" in report
+        assert "action_summary" in report
+        by_type = report["by_type"]
+
         # Should be grouped by id_type
-        assert "field" in report
-        assert "table" in report
+        assert "field" in by_type
+        assert "table" in by_type
 
         # Under "field", should group by (source_id, source_database_id)
-        field_entries = report["field"]
-        assert len(field_entries) == 1  # One unique (500, 1)
-        entry = field_entries[0]
+        field_data = by_type["field"]
+        assert field_data["count"] == 1  # One unique (500, 1)
+        entry = field_data["items"][0]
         assert entry["source_id"] == 500
         assert entry["source_database_id"] == 1
         assert len(entry["affected_entities"]) == 2
 
+        # Affected entity uses new key names
+        ae = entry["affected_entities"][0]
+        assert "source_id" in ae
+        assert "name" in ae
+        assert "action_taken" in ae
+
         # Under "table"
-        table_entries = report["table"]
-        assert len(table_entries) == 1
-        assert table_entries[0]["source_id"] == 100
+        table_data = by_type["table"]
+        assert table_data["count"] == 1
+        assert table_data["items"][0]["source_id"] == 100
 
     def test_to_report_dict_empty(self):
         """Test to_report_dict with no events."""
@@ -379,7 +390,9 @@ class TestUnmappedIDCollectorToReportDict:
         # Check affected entity structure matches plan spec
         entity = item["affected_entities"][0]
         assert "entity_type" in entity
-        assert "source_id" in entity, "Affected entity must have 'source_id' key (not entity_source_id)"
+        assert (
+            "source_id" in entity
+        ), "Affected entity must have 'source_id' key (not entity_source_id)"
         assert "name" in entity, "Affected entity must have 'name' key (not entity_name)"
         assert "action_taken" in entity, "Affected entity must have 'action_taken' key (not action)"
         assert "location" in entity

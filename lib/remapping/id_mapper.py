@@ -315,3 +315,36 @@ class IDMapper:
                     f"    Mapped field '{source_field_name}': "
                     f"{source_field_id} -> {target_field_id}"
                 )
+
+    # --- Source context helpers ---
+
+    def get_source_field_context(self, source_db_id: int, source_field_id: int) -> str | None:
+        """Get human-readable context for a source field ID.
+
+        Args:
+            source_db_id: The source database ID.
+            source_field_id: The source field ID.
+
+        Returns:
+            A string like "table 'region_department', column 'num_dep'" or None.
+        """
+        for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
+            for field_meta in table_meta.get("fields", []):
+                if field_meta["id"] == source_field_id:
+                    return f"table '{table_meta['name']}', column '{field_meta['name']}'"
+        return None
+
+    def get_source_table_context(self, source_db_id: int, source_table_id: int) -> str | None:
+        """Get human-readable context for a source table ID.
+
+        Args:
+            source_db_id: The source database ID.
+            source_table_id: The source table ID.
+
+        Returns:
+            A string like "table 'region_department'" or None.
+        """
+        for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
+            if table_meta["id"] == source_table_id:
+                return f"table '{table_meta['name']}'"
+        return None

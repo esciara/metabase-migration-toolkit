@@ -247,47 +247,60 @@ class UnmappedIDCollector:
 
         Groups events by id_type, then by (source_id, source_database_id),
         listing all affected entities under each unmapped ID.
+
+        Returns a dict with:
+        - ``by_type``: per-type grouping with count and items
+        - ``action_summary``: entities_skipped, fields_stripped, total_unmapped_ids
         """
         if not self.events:
             return {}
 
-        # Group by id_type → (source_id, source_database_id) → list of affected entities
-        grouped: dict[str, dict[tuple[int, int | None], list[UnmappedIDEvent]]] = {}
+        by_type: dict[str, list[UnmappedIDEvent]] = {}
         for event in self.events:
-            if event.id_type not in grouped:
-                grouped[event.id_type] = {}
-            key = (event.source_id, event.source_database_id)
-            if key not in grouped[event.id_type]:
-                grouped[event.id_type][key] = []
-            grouped[event.id_type][key].append(event)
+            by_type.setdefault(event.id_type, []).append(event)
 
-        result: dict[str, Any] = {}
-        for id_type, entries in grouped.items():
-            id_type_list: list[dict[str, Any]] = []
-            for (source_id, source_database_id), events in entries.items():
+        result_by_type: dict[str, Any] = {}
+        for id_type, events in by_type.items():
+            # Group by (source_id, source_database_id)
+            grouped: dict[tuple[int, int | None], list[UnmappedIDEvent]] = {}
+            for e in events:
+                key = (e.source_id, e.source_database_id)
+                grouped.setdefault(key, []).append(e)
+
+            items: list[dict[str, Any]] = []
+            for (src_id, src_db_id), group_events in grouped.items():
                 entry: dict[str, Any] = {
-                    "source_id": source_id,
-                    "source_database_id": source_database_id,
+                    "source_id": src_id,
+                    "source_database_id": src_db_id,
+                    "source_context": group_events[0].source_context,
                     "affected_entities": [
                         {
                             "entity_type": e.entity_type,
-                            "entity_source_id": e.entity_source_id,
-                            "entity_name": e.entity_name,
+                            "source_id": e.entity_source_id,
+                            "name": e.entity_name,
                             "location": e.location,
-                            "action": e.action,
+                            "action_taken": e.action,
                         }
-                        for e in events
+                        for e in group_events
                     ],
                 }
-                # Include source_context from the first event that has it
-                for e in events:
-                    if e.source_context:
-                        entry["source_context"] = e.source_context
-                        break
-                id_type_list.append(entry)
-            result[id_type] = id_type_list
+                items.append(entry)
 
-        return result
+            result_by_type[id_type] = {
+                "count": len(items),
+                "items": items,
+            }
+
+        return {
+            "by_type": result_by_type,
+            "action_summary": {
+                "entities_skipped": self.skipped_count,
+                "fields_stripped": self.stripped_count,
+                "total_unmapped_ids": len(
+                    {(e.source_id, e.source_database_id, e.id_type) for e in self.events}
+                ),
+            },
+        }
 
     @property
     def has_events(self) -> bool:

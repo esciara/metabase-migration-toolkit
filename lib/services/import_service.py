@@ -435,11 +435,30 @@ class ImportService:
         context = self._get_context()
         collector = context.unmapped_id_collector
         if collector.has_events:
+            report_dict = collector.to_report_dict()
+            summary = report_dict["action_summary"]
+
+            parts = []
+            for id_type, type_data in report_dict["by_type"].items():
+                ids = [str(item["source_id"]) for item in type_data["items"]]
+                db_ids = {item["source_database_id"] for item in type_data["items"]} - {None}
+                db_suffix = (
+                    f" (in database{'s' if len(db_ids) > 1 else ''} "
+                    f"{', '.join(str(d) for d in sorted(db_ids))})"
+                    if db_ids
+                    else ""
+                )
+                parts.append(
+                    f"  - {len(ids)} {id_type} ID{'s' if len(ids) > 1 else ''}"
+                    f"{db_suffix}: {', '.join(ids[:5])}{'...' if len(ids) > 5 else ''}"
+                )
+
             logger.warning(
-                f"{len(collector.events)} unmapped IDs caused "
-                f"{collector.skipped_count} entities to be skipped and "
-                f"{collector.stripped_count} fields to be stripped. "
-                f"See import report for details."
+                f"\n⚠ {summary['total_unmapped_ids']} unmapped IDs caused "
+                f"{summary['entities_skipped']} entities to be skipped and "
+                f"{summary['fields_stripped']} fields to be stripped.\n"
+                + "\n".join(parts)
+                + "\n  Details: see import report → 'unmapped_ids' section"
             )
 
     def _save_report(self) -> None:
