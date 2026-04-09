@@ -331,7 +331,9 @@ class IDMapper:
         for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
             for field_meta in table_meta.get("fields", []):
                 if field_meta["id"] == source_field_id:
-                    return f"table '{table_meta['name']}', column '{field_meta['name']}'"
+                    schema = table_meta.get("schema")
+                    prefix = f"schema '{schema}', " if schema else ""
+                    return f"{prefix}table '{table_meta['name']}', column '{field_meta['name']}'"
         return None
 
     def get_source_table_context(self, source_db_id: int, source_table_id: int) -> str | None:
@@ -346,5 +348,7 @@ class IDMapper:
         """
         for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
             if table_meta["id"] == source_table_id:
-                return f"table '{table_meta['name']}'"
+                schema = table_meta.get("schema")
+                prefix = f"schema '{schema}', " if schema else ""
+                return f"{prefix}table '{table_meta['name']}'"
         return None

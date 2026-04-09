@@ -173,6 +173,7 @@ class ExportService:
                         {
                             "id": table["id"],
                             "name": table["name"],
+                            "schema": table.get("schema"),
                             "fields": [
                                 {"id": field["id"], "name": field["name"]}
                                 for field in table.get("fields", [])
