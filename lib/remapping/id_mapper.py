@@ -4,12 +4,21 @@ Manages mappings for database, table, field, collection, and card IDs.
 """
 
 import logging
-from typing import Any
+from typing import Any, TypedDict
 
 from lib.client import MetabaseAPIError, MetabaseClient
 from lib.models import DatabaseMap, Manifest
 
 logger = logging.getLogger("metabase_migration")
+
+
+class SourceFieldMeta(TypedDict):
+    """Structured metadata for a source field."""
+
+    field_name: str
+    table_name: str
+    table_id: int
+    schema: str | None
 
 
 class IDMapper:
@@ -348,7 +357,7 @@ class IDMapper:
 
     def get_source_field_meta(
         self, source_db_id: int, source_field_id: int
-    ) -> dict[str, str | None] | None:
+    ) -> SourceFieldMeta | None:
         """Get structured metadata for a source field ID.
 
         Args:
@@ -356,12 +365,18 @@ class IDMapper:
             source_field_id: The source field ID.
 
         Returns:
-            A dict with keys 'field_name' and 'table_name', or None if not found.
+            A SourceFieldMeta with keys 'field_name', 'table_name', 'table_id',
+            and 'schema', or None if not found.
         """
         for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
             for field_meta in table_meta.get("fields", []):
                 if field_meta["id"] == source_field_id:
-                    return {"field_name": field_meta["name"], "table_name": table_meta["name"]}
+                    return {
+                        "field_name": field_meta["name"],
+                        "table_name": table_meta["name"],
+                        "table_id": table_meta["id"],
+                        "schema": table_meta.get("schema"),
+                    }
         return None
 
     def get_source_field_context(self, source_db_id: int, source_field_id: int) -> str | None:
@@ -372,14 +387,20 @@ class IDMapper:
             source_field_id: The source field ID.
 
         Returns:
-            A string like "table 'region_department', column 'num_dep'" or None.
+            A string like "schema 'public', table 'region_department' (ID: 42), column 'num_dep'"
+            or None.
         """
         for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
             for field_meta in table_meta.get("fields", []):
                 if field_meta["id"] == source_field_id:
                     schema = table_meta.get("schema")
                     prefix = f"schema '{schema}', " if schema else ""
-                    return f"{prefix}table '{table_meta['name']}', column '{field_meta['name']}'"
+                    table_id = table_meta.get("id")
+                    table_id_suffix = f" (ID: {table_id})" if table_id else ""
+                    return (
+                        f"{prefix}table '{table_meta['name']}'{table_id_suffix}, "
+                        f"column '{field_meta['name']}'"
+                    )
         return None
 
     def get_source_table_context(self, source_db_id: int, source_table_id: int) -> str | None:

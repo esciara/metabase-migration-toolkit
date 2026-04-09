@@ -57,7 +57,7 @@ class TestGetSourceFieldContext:
         )
 
         result = mapper.get_source_field_context(source_db_id=1, source_field_id=500)
-        assert result == "schema 'public', table 'region_department', column 'num_dep'"
+        assert result == "schema 'public', table 'region_department' (ID: 50), column 'num_dep'"
 
     def test_field_context_with_null_schema(self) -> None:
         """Returns 'table Y, column Z' when schema is None (H2/SQLite)."""
@@ -79,7 +79,7 @@ class TestGetSourceFieldContext:
         )
 
         result = mapper.get_source_field_context(source_db_id=1, source_field_id=500)
-        assert result == "table 'region_department', column 'num_dep'"
+        assert result == "table 'region_department' (ID: 50), column 'num_dep'"
 
     def test_field_context_without_schema_key(self) -> None:
         """Returns 'table Y, column Z' when schema key is missing (old manifests)."""
@@ -100,7 +100,7 @@ class TestGetSourceFieldContext:
         )
 
         result = mapper.get_source_field_context(source_db_id=1, source_field_id=500)
-        assert result == "table 'region_department', column 'num_dep'"
+        assert result == "table 'region_department' (ID: 50), column 'num_dep'"
 
     def test_get_source_field_context_not_found(self) -> None:
         """Returns None for an unknown field ID."""

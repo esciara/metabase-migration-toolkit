@@ -105,6 +105,8 @@ class FieldMappingError(MappingError):
         source_db_id: int,
         field_name: str | None = None,
         table_name: str | None = None,
+        table_id: int | None = None,
+        schema_name: str | None = None,
         source_db_name: str | None = None,
         location: str | None = None,
         details: dict[str, Any] | None = None,
@@ -113,17 +115,24 @@ class FieldMappingError(MappingError):
         self.source_db_id = source_db_id
         self.field_name = field_name
         self.table_name = table_name
+        self.table_id = table_id
+        self.schema_name = schema_name
         self.source_db_name = source_db_name
         if field_name:
             field_part = f"field '{field_name}' (ID: {source_field_id})"
         else:
             field_part = f"field ID {source_field_id}"
-        table_part = f" in table '{table_name}'" if table_name else ""
+        if table_name:
+            table_id_suffix = f" (ID: {table_id})" if table_id else ""
+            table_part = f" in table '{table_name}'{table_id_suffix}"
+        else:
+            table_part = ""
+        schema_part = f", schema '{schema_name}'" if schema_name else ""
         if source_db_name:
             db_part = f"database '{source_db_name}' (ID: {source_db_id})"
         else:
             db_part = f"database {source_db_id}"
-        message = f"No mapping found for {field_part}{table_part} in {db_part}"
+        message = f"No mapping found for {field_part}{table_part}{schema_part} in {db_part}"
         super().__init__(
             message,
             source_id=source_field_id,

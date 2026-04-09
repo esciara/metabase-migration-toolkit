@@ -550,6 +550,8 @@ class QueryRemapper:
                             source_db_id=source_db_id,
                             field_name=field_meta["field_name"] if field_meta else None,
                             table_name=field_meta["table_name"] if field_meta else None,
+                            table_id=field_meta["table_id"] if field_meta else None,
+                            schema_name=field_meta["schema"] if field_meta else None,
                             source_db_name=self.id_mapper.get_source_db_name(source_db_id),
                             location="v57 MBQL field reference (data[2])",
                         )
@@ -578,6 +580,8 @@ class QueryRemapper:
                             source_db_id=source_db_id,
                             field_name=field_meta["field_name"] if field_meta else None,
                             table_name=field_meta["table_name"] if field_meta else None,
+                            table_id=field_meta["table_id"] if field_meta else None,
+                            schema_name=field_meta["schema"] if field_meta else None,
                             source_db_name=self.id_mapper.get_source_db_name(source_db_id),
                             location="v56 MBQL field reference (data[1])",
                         )

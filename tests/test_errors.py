@@ -156,12 +156,56 @@ class TestFieldMappingError:
         assert error.source_db_id == 10
         assert error.source_type == "field"
         assert error.field_name is None
+        assert error.table_id is None
+        assert error.schema_name is None
 
     def test_init_with_field_name(self):
         """Test initialization with field name."""
         error = FieldMappingError(source_field_id=600, source_db_id=20, field_name="email")
         assert "email" in str(error)
         assert error.field_name == "email"
+
+    def test_init_with_all_context(self):
+        """Test initialization with all context fields populated."""
+        error = FieldMappingError(
+            source_field_id=2535,
+            source_db_id=2,
+            field_name="user_count",
+            table_name="active_users",
+            table_id=412,
+            schema_name="public",
+            source_db_name="Analytics",
+        )
+        msg = str(error)
+        assert "field 'user_count' (ID: 2535)" in msg
+        assert "table 'active_users' (ID: 412)" in msg
+        assert "schema 'public'" in msg
+        assert "database 'Analytics' (ID: 2)" in msg
+        assert error.table_id == 412
+        assert error.schema_name == "public"
+
+    def test_init_with_table_name_no_table_id(self):
+        """Test message format when table_name is set but table_id is not."""
+        error = FieldMappingError(
+            source_field_id=100,
+            source_db_id=1,
+            field_name="col",
+            table_name="my_table",
+        )
+        msg = str(error)
+        assert "table 'my_table'" in msg
+        assert "(ID:" not in msg.split("table")[1].split("in")[0]
+
+    def test_init_with_schema_no_table(self):
+        """Test message format when schema_name is set but table is not."""
+        error = FieldMappingError(
+            source_field_id=100,
+            source_db_id=1,
+            schema_name="public",
+        )
+        msg = str(error)
+        assert "schema 'public'" in msg
+        assert "field ID 100" in msg
 
     def test_init_with_details(self):
         """Test initialization with details."""
