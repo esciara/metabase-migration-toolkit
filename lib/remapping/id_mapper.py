@@ -111,7 +111,8 @@ class IDMapper:
             return self.db_map.by_id[str(source_db_id)]
 
         # Look up database name using integer key
-        source_db_name = self.manifest.databases.get(source_db_id)
+        databases = getattr(self.manifest, "databases", None) or {}
+        source_db_name = databases.get(source_db_id) if isinstance(databases, dict) else None
         if source_db_name and source_db_name in self.db_map.by_name:
             return self.db_map.by_name[source_db_name]
 

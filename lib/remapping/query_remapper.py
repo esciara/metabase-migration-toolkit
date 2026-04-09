@@ -5,6 +5,7 @@ MBQL query structures. Supports both v56 (MBQL 4) and v57 (MBQL 5) formats.
 """
 
 import copy
+import dataclasses
 import logging
 import re
 from typing import Any, Literal
@@ -32,6 +33,16 @@ from lib.remapping.id_mapper import IDMapper
 logger = logging.getLogger("metabase_migration")
 
 
+@dataclasses.dataclass
+class RemapWarning:
+    """Warning about a stripped unmapped ID during remapping."""
+
+    id_type: str  # "field", "table", "card", "dashboard", "database"
+    source_id: int
+    source_database_id: int | None
+    location: str  # "result_metadata[].id", "click_behavior.targetId", etc.
+
+
 class QueryRemapper:
     """Handles remapping of IDs within MBQL queries and card data."""
 
@@ -48,6 +59,24 @@ class QueryRemapper:
         """
         self.id_mapper = id_mapper
         self.unmapped_ids_mode = unmapped_ids_mode
+        self._current_warnings: list[RemapWarning] = []
+
+    def _add_warning(
+        self,
+        id_type: str,
+        source_id: int,
+        source_db_id: int | None,
+        location: str,
+    ) -> None:
+        """Record a warning about a stripped unmapped ID.
+
+        Args:
+            id_type: Type of ID ("field", "table", "card", "dashboard", "database").
+            source_id: The source ID that could not be mapped.
+            source_db_id: The source database ID, if applicable.
+            location: Description of where in the data structure the ID was found.
+        """
+        self._current_warnings.append(RemapWarning(id_type, source_id, source_db_id, location))
 
     def remap_card_data(self, card_data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         """Remaps database, table, field, and card IDs in card data.
@@ -71,6 +100,7 @@ class QueryRemapper:
             ValueError: If the database ID cannot be mapped.
         """
         data = copy.deepcopy(card_data)
+        self._current_warnings = []
         query = data.get("dataset_query", {})
 
         source_db_id = data.get("database_id") or query.get("database")
@@ -383,11 +413,19 @@ class QueryRemapper:
 
             item_copy = item.copy()
 
-            # Remap field_ref
+            # Remap field_ref (Tier 2: catch FieldMappingError and strip)
             if "field_ref" in item_copy:
-                item_copy["field_ref"] = self.remap_field_ids_recursively(
-                    item_copy["field_ref"], source_db_id
-                )
+                try:
+                    item_copy["field_ref"] = self.remap_field_ids_recursively(
+                        item_copy["field_ref"], source_db_id
+                    )
+                except FieldMappingError as e:
+                    # Tier 2 context: strip rather than propagate
+                    source_id = e.source_id if e.source_id is not None else 0
+                    self._add_warning(
+                        "field", source_id, source_db_id, "result_metadata[].field_ref"
+                    )
+                    del item_copy["field_ref"]
 
             # Remap direct field ID
             if "id" in item_copy and isinstance(item_copy["id"], int):
@@ -398,6 +436,11 @@ class QueryRemapper:
                         f"to {target_field_id}"
                     )
                     item_copy["id"] = target_field_id
+                elif self.unmapped_ids_mode != "force":
+                    self._add_warning(
+                        "field", item_copy["id"], source_db_id, "result_metadata[].id"
+                    )
+                    del item_copy["id"]
 
             # Remap table_id
             if "table_id" in item_copy and isinstance(item_copy["table_id"], int):
@@ -410,6 +453,11 @@ class QueryRemapper:
                         f"to {target_table_id}"
                     )
                     item_copy["table_id"] = target_table_id
+                elif self.unmapped_ids_mode != "force":
+                    self._add_warning(
+                        "table", item_copy["table_id"], source_db_id, "result_metadata[].table_id"
+                    )
+                    del item_copy["table_id"]
 
             remapped_metadata.append(item_copy)
 
@@ -997,10 +1045,14 @@ class QueryRemapper:
                         f"Remapped click_behavior targetId (question) "
                         f"from {target_id} to {new_target_id}"
                     )
+                elif self.unmapped_ids_mode != "force":
+                    self._add_warning("card", target_id, None, "click_behavior.targetId (question)")
+                    result.pop("targetId", None)
+                    result["type"] = "none"
                 else:
                     logger.warning(
                         f"No card mapping found for click_behavior targetId {target_id}. "
-                        f"Keeping original."
+                        f"Keeping original (--unmapped-ids=force)."
                     )
 
             elif link_type == "dashboard" and isinstance(target_id, int):
@@ -1011,10 +1063,16 @@ class QueryRemapper:
                         f"Remapped click_behavior targetId (dashboard) "
                         f"from {target_id} to {new_target_id}"
                     )
+                elif self.unmapped_ids_mode != "force":
+                    self._add_warning(
+                        "dashboard", target_id, None, "click_behavior.targetId (dashboard)"
+                    )
+                    result.pop("targetId", None)
+                    result["type"] = "none"
                 else:
                     logger.warning(
                         f"No dashboard mapping found for click_behavior targetId {target_id}. "
-                        f"Keeping original."
+                        f"Keeping original (--unmapped-ids=force)."
                     )
 
         return result
@@ -1070,7 +1128,9 @@ class QueryRemapper:
                         remapped_list.append(remapped_item)
                     elif isinstance(item, str) and item.startswith("$_card:"):
                         # Handle data source name references: $_card:123_name
-                        remapped_list.append(self._remap_data_source_name_ref(item))
+                        remapped_ref = self._remap_data_source_name_ref(item)
+                        if remapped_ref is not None:
+                            remapped_list.append(remapped_ref)
                     else:
                         remapped_list.append(item)
                 result[key] = remapped_list
@@ -1100,17 +1160,22 @@ class QueryRemapper:
                     logger.debug(
                         f"Remapped Visualizer sourceId from card:{card_id} to card:{new_card_id}"
                     )
+                elif self.unmapped_ids_mode != "force":
+                    self._add_warning(
+                        "card", card_id, None, "visualizer columnValuesMapping sourceId"
+                    )
+                    result["sourceId"] = None
                 else:
                     logger.warning(
                         f"No card mapping found for Visualizer sourceId card:{card_id}. "
-                        f"Keeping original."
+                        f"Keeping original (--unmapped-ids=force)."
                     )
             except ValueError:
                 logger.warning(f"Invalid Visualizer sourceId format: {source_id}")
 
         return result
 
-    def _remap_data_source_name_ref(self, ref: str) -> str:
+    def _remap_data_source_name_ref(self, ref: str) -> str | None:
         """Remaps a Visualizer data source name reference.
 
         Format: $_card:123_name -> $_card:456_name
@@ -1119,7 +1184,7 @@ class QueryRemapper:
             ref: The data source name reference string.
 
         Returns:
-            The remapped reference string.
+            The remapped reference string, or None if the card ID is unmapped.
         """
         # Pattern: $_card:123_name
         pattern = r"^\$_card:(\d+)_name$"
@@ -1131,9 +1196,13 @@ class QueryRemapper:
                 new_ref = f"$_card:{new_card_id}_name"
                 logger.debug(f"Remapped data source name ref from {ref} to {new_ref}")
                 return new_ref
+            elif self.unmapped_ids_mode != "force":
+                self._add_warning("card", card_id, None, "visualizer data source name ref")
+                return None
             else:
                 logger.warning(
-                    f"No card mapping found for data source name ref {ref}. Keeping original."
+                    f"No card mapping found for data source name ref {ref}. "
+                    f"Keeping original (--unmapped-ids=force)."
                 )
         return ref
 
@@ -1171,10 +1240,13 @@ class QueryRemapper:
             if new_id:
                 result["entity"]["id"] = new_id
                 logger.debug(f"Remapped link card entity id ({model}) from {entity_id} to {new_id}")
+            elif self.unmapped_ids_mode != "force":
+                self._add_warning("card", entity_id, None, "link card entity.id (card)")
+                result.pop("entity", None)
             else:
                 logger.warning(
                     f"No card mapping found for link card entity id {entity_id}. "
-                    f"Keeping original."
+                    f"Keeping original (--unmapped-ids=force)."
                 )
 
         elif model == "dashboard":
@@ -1184,10 +1256,13 @@ class QueryRemapper:
                 logger.debug(
                     f"Remapped link card entity id (dashboard) from {entity_id} to {new_id}"
                 )
+            elif self.unmapped_ids_mode != "force":
+                self._add_warning("dashboard", entity_id, None, "link card entity.id (dashboard)")
+                result.pop("entity", None)
             else:
                 logger.warning(
                     f"No dashboard mapping found for link card entity id {entity_id}. "
-                    f"Keeping original."
+                    f"Keeping original (--unmapped-ids=force)."
                 )
 
         return result

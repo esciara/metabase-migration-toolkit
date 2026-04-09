@@ -403,7 +403,10 @@ class DashboardHandler(BaseHandler):
         return clean_dashcard
 
     def _remap_embedded_card(
-        self, card: dict[str, Any], source_db_id: int | None
+        self,
+        card: dict[str, Any],
+        source_db_id: int | None,
+        dash: Dashboard | None = None,
     ) -> dict[str, Any] | None:
         """Remaps IDs in an embedded card object (for 'Visualize another way').
 
@@ -415,6 +418,7 @@ class DashboardHandler(BaseHandler):
         Args:
             card: The embedded card object from the dashcard.
             source_db_id: The source database ID for field lookups.
+            dash: The parent dashboard (for collector context on unmapped IDs).
 
         Returns:
             The remapped card object, or None if remapping fails.
@@ -430,6 +434,20 @@ class DashboardHandler(BaseHandler):
             if target_card_id:
                 remapped_card["id"] = target_card_id
                 logger.debug(f"Remapped embedded card.id from {source_card_id} to {target_card_id}")
+            elif (
+                dash is not None and getattr(self.context.config, "unmapped_ids", "skip") != "force"
+            ):
+                logger.warning(f"Stripping unmapped embedded card.id {source_card_id}.")
+                remapped_card["id"] = None
+                self.context.unmapped_id_collector.record(
+                    id_type="card",
+                    source_id=source_card_id,
+                    entity_type="dashboard",
+                    entity_source_id=dash.id,
+                    entity_name=dash.name,
+                    location="embedded card.id",
+                    action="stripped",
+                )
             else:
                 logger.warning(
                     f"No mapping found for embedded card.id {source_card_id}. " f"Keeping original."
@@ -443,6 +461,27 @@ class DashboardHandler(BaseHandler):
                 logger.debug(
                     f"Remapped embedded card.database_id from {card['database_id']} "
                     f"to {target_db_id}"
+                )
+            elif (
+                dash is not None and getattr(self.context.config, "unmapped_ids", "skip") != "force"
+            ):
+                logger.warning(
+                    f"Stripping unmapped embedded card database_id {card['database_id']}."
+                )
+                remapped_card["database_id"] = None
+                self.context.unmapped_id_collector.record(
+                    id_type="database",
+                    source_id=card["database_id"],
+                    entity_type="dashboard",
+                    entity_source_id=dash.id,
+                    entity_name=dash.name,
+                    location="embedded card.database_id",
+                    action="stripped",
+                )
+            else:
+                logger.warning(
+                    f"No mapping found for embedded card database_id {card['database_id']}. "
+                    f"Keeping original."
                 )
 
         # Remap dataset_query if present (for query-based visualizations)

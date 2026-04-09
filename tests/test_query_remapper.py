@@ -376,9 +376,9 @@ class TestTier2StripResultMetadata:
         result = remapper._remap_result_metadata(metadata, source_db_id=1)
 
         # The "field_ref" key must be stripped
-        assert "field_ref" not in result[0], (
-            "Unmapped field_ref should be stripped from result_metadata"
-        )
+        assert (
+            "field_ref" not in result[0]
+        ), "Unmapped field_ref should be stripped from result_metadata"
         # A RemapWarning should be recorded
         assert len(remapper._current_warnings) >= 1
         w = remapper._current_warnings[0]
@@ -398,9 +398,9 @@ class TestTier2StripResultMetadata:
         result = remapper._remap_result_metadata(metadata, source_db_id=1)
 
         # The "table_id" key must be stripped
-        assert "table_id" not in result[0], (
-            "Unmapped table_id should be stripped from result_metadata"
-        )
+        assert (
+            "table_id" not in result[0]
+        ), "Unmapped table_id should be stripped from result_metadata"
         # A RemapWarning should be recorded
         assert len(remapper._current_warnings) == 1
         w = remapper._current_warnings[0]

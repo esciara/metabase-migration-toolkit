@@ -1297,7 +1297,9 @@ class TestEmbeddedCardStripping:
     """Leaks 3.12, 5.1 — _remap_embedded_card strips unmapped IDs."""
 
     @pytest.fixture
-    def handler_with_real_mapper(self, mock_config, mock_client, mock_manifest, mock_report, tmp_path):
+    def handler_with_real_mapper(
+        self, mock_config, mock_client, mock_manifest, mock_report, tmp_path
+    ):
         """Create a DashboardHandler with a real IDMapper (not mocked).
 
         Uses _make_id_mapper-like setup so we can control exactly which IDs
@@ -1387,9 +1389,9 @@ class TestEmbeddedCardStripping:
         result = handler._remap_embedded_card(card, source_db_id=None, dash=dash)
 
         assert result is not None
-        assert result["database_id"] is None, (
-            "Unmapped embedded card.database_id should be set to None"
-        )
+        assert (
+            result["database_id"] is None
+        ), "Unmapped embedded card.database_id should be set to None"
 
         # Verify collector recorded the event
         collector = context.unmapped_id_collector
