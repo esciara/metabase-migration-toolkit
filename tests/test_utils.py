@@ -301,6 +301,46 @@ class TestCleanForCreate:
         assert cleaned["type"] == "model"
         assert cleaned["dataset"] is True
 
+    def test_clean_empty_description_set_to_none(self):
+        """Test that clean_for_create sanitizes empty-string description to None."""
+        payload = {
+            "name": "Test Card",
+            "description": "",
+            "dataset_query": {"type": "query"},
+        }
+        cleaned = clean_for_create(payload)
+
+        assert cleaned["description"] is None
+
+    def test_clean_valid_description_preserved(self):
+        """Test that clean_for_create preserves non-empty description."""
+        payload = {
+            "name": "Test Card",
+            "description": "A valid description",
+        }
+        cleaned = clean_for_create(payload)
+
+        assert cleaned["description"] == "A valid description"
+
+    def test_clean_none_description_preserved(self):
+        """Test that clean_for_create preserves None description."""
+        payload = {
+            "name": "Test Card",
+            "description": None,
+        }
+        cleaned = clean_for_create(payload)
+
+        assert cleaned["description"] is None
+
+    def test_clean_missing_description_not_added(self):
+        """Test that clean_for_create does not add description if not present."""
+        payload = {
+            "name": "Test Card",
+        }
+        cleaned = clean_for_create(payload)
+
+        assert "description" not in cleaned
+
     def test_clean_non_card_payload_unchanged(self):
         """Test that clean_for_create doesn't add type to non-card payloads."""
         # Collection payload - should not have type added
@@ -488,6 +528,28 @@ class TestCleanDashboardForUpdate:
         assert "created_at" not in cleaned
         assert "creator_id" not in cleaned
         assert cleaned["name"] == "Test Dashboard"
+
+    def test_clean_dashboard_empty_description_set_to_none(self):
+        """Test that clean_dashboard_for_update sanitizes empty-string description to None."""
+        payload = {
+            "name": "Test Dashboard",
+            "description": "",
+            "dashcards": [{"id": 1}],
+        }
+        cleaned = clean_dashboard_for_update(payload)
+
+        assert cleaned["description"] is None
+        assert "dashcards" not in cleaned
+
+    def test_clean_dashboard_valid_description_preserved(self):
+        """Test that clean_dashboard_for_update preserves non-empty description."""
+        payload = {
+            "name": "Test Dashboard",
+            "description": "Dashboard description",
+        }
+        cleaned = clean_dashboard_for_update(payload)
+
+        assert cleaned["description"] == "Dashboard description"
 
 
 class TestCleanForCreateTableId:

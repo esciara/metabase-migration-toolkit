@@ -24,6 +24,13 @@ def clean_for_create(payload: dict[str, Any]) -> dict[str, Any]:
     """
     cleaned = {k: v for k, v in payload.items() if k not in IMMUTABLE_FIELDS}
 
+    # Sanitize empty-string description to null.
+    # Metabase API rejects empty-string descriptions with 400:
+    # "value must be a non-blank string."
+    # Exported cards can have "description": "" which must become null.
+    if cleaned.get("description") == "":
+        cleaned["description"] = None
+
     # Set table_id to null - it's instance-specific and will be auto-populated by Metabase
     # based on the query's source-table
     if "table_id" in cleaned:
