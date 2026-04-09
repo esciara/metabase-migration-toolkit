@@ -12,6 +12,7 @@ import pytest
 
 from lib.client import MetabaseAPIError
 from lib.config import ImportConfig
+from lib.errors import MigrationError, TableMappingError
 from lib.handlers.base import ImportContext
 from lib.handlers.card import CardHandler
 from lib.models_core import Card, ImportReport, Manifest
@@ -1129,3 +1130,128 @@ class TestImportCards:
 
             # Should import both cards
             assert mock_import.call_count == 2
+
+
+class TestCardHandlerMappingErrorCatch:
+    """Tests for MappingError catch block in CardHandler._import_single_card()."""
+
+    @pytest.fixture
+    def import_context_with_collector(
+        self,
+        mock_config,
+        mock_client,
+        mock_manifest,
+        mock_id_mapper,
+        mock_query_remapper,
+        mock_report,
+        tmp_path,
+    ):
+        """Create an ImportContext with an UnmappedIDCollector."""
+        mock_config.unmapped_ids = "skip"
+        context = ImportContext(
+            config=mock_config,
+            client=mock_client,
+            manifest=mock_manifest,
+            export_dir=tmp_path,
+            id_mapper=mock_id_mapper,
+            query_remapper=mock_query_remapper,
+            report=mock_report,
+            target_collections=[],
+        )
+        return context
+
+    def test_card_handler_catches_mapping_error(
+        self, import_context_with_collector, mock_client, tmp_path
+    ):
+        """Test that MappingError is caught, card is skipped, and event is recorded."""
+        # Create a card file
+        card_file = tmp_path / "test_card.json"
+        card_file.write_text(
+            json.dumps(
+                {
+                    "name": "Test Card",
+                    "dataset_query": {"query": {"source-table": 10}, "database": 1},
+                }
+            )
+        )
+
+        # Make remap_card_data raise a MappingError
+        import_context_with_collector.query_remapper.remap_card_data.side_effect = (
+            TableMappingError(
+                source_table_id=100,
+                source_db_id=1,
+                table_name="users",
+                location="source-table",
+            )
+        )
+
+        handler = CardHandler(import_context_with_collector)
+        card = Card(
+            id=1,
+            name="Test Card",
+            file_path="test_card.json",
+            collection_id=10,
+            database_id=1,
+            archived=False,
+            dataset=False,
+        )
+
+        handler._import_single_card(card)
+
+        # Card should NOT be created
+        mock_client.create_card.assert_not_called()
+
+        # Report should show the card as failed
+        import_context_with_collector.report.add.assert_called()
+
+        # The unmapped_id_collector should have recorded an event
+        collector = import_context_with_collector.unmapped_id_collector
+        assert collector.has_events
+        assert len(collector.events) == 1
+        assert collector.events[0].entity_type == "card"
+        assert collector.events[0].entity_source_id == 1
+        assert collector.events[0].entity_name == "Test Card"
+        assert collector.events[0].action == "skipped"
+
+    def test_card_handler_strict_mode_aborts(
+        self, import_context_with_collector, mock_client, tmp_path
+    ):
+        """Test that strict mode raises MigrationError on MappingError."""
+        # Set strict mode
+        import_context_with_collector.config.unmapped_ids = "strict"
+
+        # Create a card file
+        card_file = tmp_path / "test_card.json"
+        card_file.write_text(
+            json.dumps(
+                {
+                    "name": "Strict Card",
+                    "dataset_query": {"query": {"source-table": 10}, "database": 1},
+                }
+            )
+        )
+
+        # Make remap_card_data raise a MappingError
+        import_context_with_collector.query_remapper.remap_card_data.side_effect = (
+            TableMappingError(
+                source_table_id=100,
+                source_db_id=1,
+                table_name="users",
+                location="source-table",
+            )
+        )
+
+        handler = CardHandler(import_context_with_collector)
+        card = Card(
+            id=1,
+            name="Strict Card",
+            file_path="test_card.json",
+            collection_id=10,
+            database_id=1,
+            archived=False,
+            dataset=False,
+        )
+
+        # Should raise MigrationError due to strict mode
+        with pytest.raises(MigrationError, match="strict"):
+            handler._import_single_card(card)

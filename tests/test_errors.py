@@ -10,6 +10,7 @@ from lib.errors import (
     CardMappingError,
     CircularDependencyError,
     ConflictError,
+    DashboardMappingError,
     DatabaseMappingError,
     DependencyError,
     ExportError,
@@ -456,3 +457,110 @@ class TestErrorHierarchy:
         """Test ManifestValidationError inherits from ValidationError."""
         error = ManifestValidationError("test")
         assert isinstance(error, ValidationError)
+
+
+class TestDashboardMappingError:
+    """Tests for the DashboardMappingError class."""
+
+    def test_dashboard_mapping_error_init(self):
+        """Test DashboardMappingError fields and message."""
+        error = DashboardMappingError(source_dashboard_id=42, dashboard_name="Sales Overview")
+        assert error.source_id == 42
+        assert error.source_type == "dashboard"
+        assert error.dashboard_name == "Sales Overview"
+        assert "42" in str(error)
+        assert "Sales Overview" in str(error)
+        assert "No mapping found for source dashboard ID 42" in error.message
+
+    def test_dashboard_mapping_error_without_name(self):
+        """Test DashboardMappingError without dashboard name."""
+        error = DashboardMappingError(source_dashboard_id=7)
+        assert error.source_id == 7
+        assert error.source_type == "dashboard"
+        assert error.dashboard_name is None
+        assert "7" in str(error)
+
+    def test_dashboard_mapping_error_with_details(self):
+        """Test DashboardMappingError with additional details."""
+        error = DashboardMappingError(
+            source_dashboard_id=10,
+            dashboard_name="Revenue",
+            details={"collection_id": 5},
+        )
+        assert error.details == {"collection_id": 5}
+
+    def test_dashboard_mapping_error_inheritance(self):
+        """Test DashboardMappingError inherits from MappingError."""
+        error = DashboardMappingError(source_dashboard_id=1)
+        assert isinstance(error, MappingError)
+        assert isinstance(error, MigrationError)
+
+    def test_dashboard_mapping_error_with_location(self):
+        """Test DashboardMappingError with location field."""
+        error = DashboardMappingError(
+            source_dashboard_id=42,
+            dashboard_name="Sales",
+            details={"key": "value"},
+        )
+        # location should be settable via the parent MappingError
+        error.location = "click_behavior.targetId"
+        assert error.location == "click_behavior.targetId"
+
+
+class TestMappingErrorLocation:
+    """Tests for the location field on MappingError."""
+
+    def test_mapping_error_location_field(self):
+        """Test that location kwarg propagates correctly on MappingError."""
+        error = MappingError(
+            "Mapping failed",
+            source_id=123,
+            source_type="field",
+            location="template-tag 'Dept' → dimension[2]",
+        )
+        assert error.location == "template-tag 'Dept' → dimension[2]"
+        assert error.source_id == 123
+        assert error.source_type == "field"
+
+    def test_mapping_error_location_default_none(self):
+        """Test that location defaults to None."""
+        error = MappingError("Mapping failed")
+        assert error.location is None
+
+    def test_subclass_location_propagation(self):
+        """Test that location propagates through subclasses."""
+        error = FieldMappingError(
+            source_field_id=500,
+            source_db_id=10,
+            field_name="email",
+            location="filter clause[0]",
+        )
+        assert error.location == "filter clause[0]"
+
+    def test_table_mapping_error_location(self):
+        """Test location on TableMappingError."""
+        error = TableMappingError(
+            source_table_id=100,
+            source_db_id=5,
+            table_name="users",
+            location="source-table",
+        )
+        assert error.location == "source-table"
+
+    def test_card_mapping_error_location(self):
+        """Test location on CardMappingError."""
+        error = CardMappingError(
+            source_card_id=42,
+            card_name="Revenue",
+            location="join[1].source-table",
+        )
+        assert error.location == "join[1].source-table"
+
+    def test_database_mapping_error_location(self):
+        """Test location on DatabaseMappingError."""
+        error = DatabaseMappingError(
+            source_db_id=5,
+            source_db_name="Production DB",
+            location="dataset_query.database",
+        )
+        assert error.location == "dataset_query.database"

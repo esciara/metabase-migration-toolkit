@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from lib.config import ImportConfig
+from lib.errors import MigrationError, TableMappingError
 from lib.handlers.base import ImportContext
 from lib.handlers.dashboard import DashboardHandler
 from lib.models_core import Card, Dashboard, ImportReport, Manifest
@@ -1169,3 +1170,124 @@ class TestImportDashboards:
 
         # Should be sorted by file_path
         assert import_order == ["a_dash.json", "z_dash.json"]
+
+
+class TestDashboardHandlerMappingErrorCatch:
+    """Tests for MappingError catch block in DashboardHandler._import_single_dashboard()."""
+
+    @pytest.fixture
+    def import_context_with_collector(
+        self,
+        mock_config,
+        mock_client,
+        mock_manifest,
+        mock_id_mapper,
+        mock_query_remapper,
+        mock_report,
+        tmp_path,
+    ):
+        """Create an ImportContext with an UnmappedIDCollector."""
+        mock_config.unmapped_ids = "skip"
+        context = ImportContext(
+            config=mock_config,
+            client=mock_client,
+            manifest=mock_manifest,
+            export_dir=tmp_path,
+            id_mapper=mock_id_mapper,
+            query_remapper=mock_query_remapper,
+            report=mock_report,
+            target_collections=[],
+        )
+        return context
+
+    def test_dashboard_handler_catches_mapping_error(
+        self, import_context_with_collector, mock_client, mock_query_remapper, tmp_path
+    ):
+        """Test that MappingError is caught, dashboard is skipped, event is recorded."""
+        # Create a dashboard file
+        dash_file = tmp_path / "test_dashboard.json"
+        dash_file.write_text(
+            json.dumps(
+                {
+                    "name": "Test Dashboard",
+                    "collection_id": 10,
+                    "parameters": [],
+                    "dashcards": [],
+                }
+            )
+        )
+
+        # Make remap_dashboard_parameters raise a MappingError
+        mock_query_remapper.remap_dashboard_parameters.side_effect = TableMappingError(
+            source_table_id=100,
+            source_db_id=1,
+            table_name="users",
+            location="parameter[0].target",
+        )
+
+        handler = DashboardHandler(import_context_with_collector)
+        dash = Dashboard(
+            id=1,
+            name="Test Dashboard",
+            file_path="test_dashboard.json",
+            collection_id=10,
+            archived=False,
+        )
+
+        handler._import_single_dashboard(dash)
+
+        # Dashboard should NOT be created
+        mock_client.create_dashboard.assert_not_called()
+
+        # Report should show the dashboard as failed
+        import_context_with_collector.report.add.assert_called()
+
+        # The unmapped_id_collector should have recorded an event
+        collector = import_context_with_collector.unmapped_id_collector
+        assert collector.has_events
+        assert len(collector.events) == 1
+        assert collector.events[0].entity_type == "dashboard"
+        assert collector.events[0].entity_source_id == 1
+        assert collector.events[0].entity_name == "Test Dashboard"
+        assert collector.events[0].action == "skipped"
+
+    def test_dashboard_handler_strict_mode_aborts(
+        self, import_context_with_collector, mock_client, mock_query_remapper, tmp_path
+    ):
+        """Test that strict mode raises MigrationError on MappingError."""
+        # Set strict mode
+        import_context_with_collector.config.unmapped_ids = "strict"
+
+        # Create a dashboard file
+        dash_file = tmp_path / "test_dashboard.json"
+        dash_file.write_text(
+            json.dumps(
+                {
+                    "name": "Strict Dashboard",
+                    "collection_id": 10,
+                    "parameters": [],
+                    "dashcards": [],
+                }
+            )
+        )
+
+        # Make remap_dashboard_parameters raise a MappingError
+        mock_query_remapper.remap_dashboard_parameters.side_effect = TableMappingError(
+            source_table_id=100,
+            source_db_id=1,
+            table_name="users",
+            location="parameter[0].target",
+        )
+
+        handler = DashboardHandler(import_context_with_collector)
+        dash = Dashboard(
+            id=1,
+            name="Strict Dashboard",
+            file_path="test_dashboard.json",
+            collection_id=10,
+            archived=False,
+        )
+
+        # Should raise MigrationError due to strict mode
+        with pytest.raises(MigrationError, match="strict"):
+            handler._import_single_dashboard(dash)

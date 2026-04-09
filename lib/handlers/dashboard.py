@@ -12,6 +12,7 @@ from lib.constants import (
     DASHCARD_EXCLUDED_FIELDS,
     DASHCARD_POSITION_FIELDS,
 )
+from lib.errors import MappingError, MigrationError
 from lib.handlers.base import BaseHandler, ImportContext
 from lib.models import Dashboard
 from lib.utils import clean_for_create, read_json_file
@@ -134,6 +135,33 @@ class DashboardHandler(BaseHandler):
                 f"(ID: {updated_dash['id']})"
             )
 
+        except MappingError as e:
+            logger.error(f"Skipping dashboard '{dash.name}' (ID: {dash.id}): {e.message}")
+            id_type = cast(
+                Literal["field", "table", "card", "dashboard", "database"],
+                e.source_type,
+            )
+            source_id = e.source_id if e.source_id is not None else 0
+            self.context.unmapped_id_collector.record(
+                id_type=id_type,
+                source_id=source_id,
+                entity_type="dashboard",
+                entity_source_id=dash.id,
+                entity_name=dash.name,
+                location=e.location or "unknown",
+                action="skipped",
+                source_database_id=getattr(e, "source_db_id", None),
+            )
+            self._add_report_item(
+                "dashboard",
+                "failed",
+                dash.id,
+                None,
+                dash.name,
+                f"Unmapped {e.source_type} ID: {e.message}",
+            )
+            if self.context.config.unmapped_ids == "strict":
+                raise MigrationError(f"Import aborted (--unmapped-ids=strict): {e.message}") from e
         except Exception as e:
             logger.error(
                 f"Failed to import dashboard '{dash.name}' (ID: {dash.id}): {e}",

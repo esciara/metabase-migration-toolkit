@@ -9,6 +9,7 @@ from typing import Any, Literal
 from lib.client import MetabaseClient
 from lib.config import ImportConfig
 from lib.models import ImportReport, Manifest
+from lib.models_core import UnmappedIDCollector
 from lib.remapping.id_mapper import IDMapper
 from lib.remapping.query_remapper import QueryRemapper
 
@@ -39,6 +40,9 @@ class ImportContext:
     id_mapper: IDMapper
     query_remapper: QueryRemapper
     report: ImportReport
+
+    # Unmapped ID tracking
+    unmapped_id_collector: UnmappedIDCollector = field(default_factory=UnmappedIDCollector)
 
     # Target instance caches
     target_collections: list[dict[str, Any]] = field(default_factory=list)

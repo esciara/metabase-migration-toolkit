@@ -25,11 +25,13 @@ class MappingError(MigrationError):
         message: str,
         source_id: int | None = None,
         source_type: str = "unknown",
+        location: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize mapping error with source ID and type information."""
         self.source_id = source_id
         self.source_type = source_type
+        self.location = location
         super().__init__(message, details)
 
 
@@ -40,6 +42,7 @@ class DatabaseMappingError(MappingError):
         self,
         source_db_id: int,
         source_db_name: str | None = None,
+        location: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize database mapping error with source database information."""
@@ -47,7 +50,13 @@ class DatabaseMappingError(MappingError):
         message = f"No mapping found for source database ID {source_db_id}"
         if source_db_name:
             message += f" ('{source_db_name}')"
-        super().__init__(message, source_id=source_db_id, source_type="database", details=details)
+        super().__init__(
+            message,
+            source_id=source_db_id,
+            source_type="database",
+            location=location,
+            details=details,
+        )
 
 
 class TableMappingError(MappingError):
@@ -58,6 +67,7 @@ class TableMappingError(MappingError):
         source_table_id: int,
         source_db_id: int,
         table_name: str | None = None,
+        location: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize table mapping error with table and database information."""
@@ -66,7 +76,13 @@ class TableMappingError(MappingError):
         message = f"No mapping found for table ID {source_table_id} in database {source_db_id}"
         if table_name:
             message += f" (table: '{table_name}')"
-        super().__init__(message, source_id=source_table_id, source_type="table", details=details)
+        super().__init__(
+            message,
+            source_id=source_table_id,
+            source_type="table",
+            location=location,
+            details=details,
+        )
 
 
 class FieldMappingError(MappingError):
@@ -77,6 +93,7 @@ class FieldMappingError(MappingError):
         source_field_id: int,
         source_db_id: int,
         field_name: str | None = None,
+        location: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize field mapping error with field and database information."""
@@ -85,7 +102,13 @@ class FieldMappingError(MappingError):
         message = f"No mapping found for field ID {source_field_id} in database {source_db_id}"
         if field_name:
             message += f" (field: '{field_name}')"
-        super().__init__(message, source_id=source_field_id, source_type="field", details=details)
+        super().__init__(
+            message,
+            source_id=source_field_id,
+            source_type="field",
+            location=location,
+            details=details,
+        )
 
 
 class CardMappingError(MappingError):
@@ -95,6 +118,7 @@ class CardMappingError(MappingError):
         self,
         source_card_id: int,
         card_name: str | None = None,
+        location: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize card mapping error with card information."""
@@ -102,7 +126,37 @@ class CardMappingError(MappingError):
         message = f"No mapping found for source card ID {source_card_id}"
         if card_name:
             message += f" ('{card_name}')"
-        super().__init__(message, source_id=source_card_id, source_type="card", details=details)
+        super().__init__(
+            message,
+            source_id=source_card_id,
+            source_type="card",
+            location=location,
+            details=details,
+        )
+
+
+class DashboardMappingError(MappingError):
+    """Error when dashboard ID mapping fails."""
+
+    def __init__(
+        self,
+        source_dashboard_id: int,
+        dashboard_name: str | None = None,
+        location: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize dashboard mapping error with dashboard information."""
+        self.dashboard_name = dashboard_name
+        message = f"No mapping found for source dashboard ID {source_dashboard_id}"
+        if dashboard_name:
+            message += f" ('{dashboard_name}')"
+        super().__init__(
+            message,
+            source_id=source_dashboard_id,
+            source_type="dashboard",
+            location=location,
+            details=details,
+        )
 
 
 class DependencyError(MigrationError):

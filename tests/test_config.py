@@ -633,3 +633,61 @@ class TestGetImportArgs:
         assert config.target_url == "https://cli.example.com"
         # CLI session token should be used
         assert config.target_session_token == "session-token"
+
+
+class TestImportConfigUnmappedIds:
+    """Tests for the unmapped_ids field on ImportConfig."""
+
+    def test_import_config_unmapped_ids_default(self):
+        """Test that unmapped_ids defaults to 'skip'."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+        )
+        assert config.unmapped_ids == "skip"
+
+    def test_import_config_unmapped_ids_skip(self):
+        """Test setting unmapped_ids to 'skip'."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+            unmapped_ids="skip",
+        )
+        assert config.unmapped_ids == "skip"
+
+    def test_import_config_unmapped_ids_strict(self):
+        """Test setting unmapped_ids to 'strict'."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+            unmapped_ids="strict",
+        )
+        assert config.unmapped_ids == "strict"
+
+    def test_import_config_unmapped_ids_force(self):
+        """Test setting unmapped_ids to 'force'."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir="./export",
+            db_map_path="./db_map.json",
+            target_session_token="token123",
+            unmapped_ids="force",
+        )
+        assert config.unmapped_ids == "force"
+
+    def test_import_config_unmapped_ids_validation(self):
+        """Test that invalid unmapped_ids values are rejected."""
+        with pytest.raises(ValidationError):
+            ImportConfig(
+                target_url="https://example.com",
+                export_dir="./export",
+                db_map_path="./db_map.json",
+                target_session_token="token123",
+                unmapped_ids="invalid",
+            )

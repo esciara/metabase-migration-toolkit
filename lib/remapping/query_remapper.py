@@ -7,7 +7,7 @@ MBQL query structures. Supports both v56 (MBQL 4) and v57 (MBQL 5) formats.
 import copy
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
 
 from lib.constants import (
     CARD_REF_PREFIX,
@@ -34,13 +34,19 @@ logger = logging.getLogger("metabase_migration")
 class QueryRemapper:
     """Handles remapping of IDs within MBQL queries and card data."""
 
-    def __init__(self, id_mapper: IDMapper) -> None:
+    def __init__(
+        self,
+        id_mapper: IDMapper,
+        unmapped_ids_mode: Literal["skip", "strict", "force"] = "skip",
+    ) -> None:
         """Initialize the QueryRemapper.
 
         Args:
             id_mapper: The IDMapper instance for resolving IDs.
+            unmapped_ids_mode: How to handle unmapped IDs ('skip', 'strict', 'force').
         """
         self.id_mapper = id_mapper
+        self.unmapped_ids_mode = unmapped_ids_mode
 
     def remap_card_data(self, card_data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         """Remaps database, table, field, and card IDs in card data.

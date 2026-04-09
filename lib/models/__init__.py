@@ -17,6 +17,8 @@ from lib.models_core import (
     ManifestMeta,
     PermissionGroup,
     UnmappedDatabase,
+    UnmappedIDCollector,
+    UnmappedIDEvent,
 )
 
 __all__ = [
@@ -35,4 +37,7 @@ __all__ = [
     "ImportPlan",
     "ImportReportItem",
     "ImportReport",
+    # Unmapped ID tracking
+    "UnmappedIDEvent",
+    "UnmappedIDCollector",
 ]

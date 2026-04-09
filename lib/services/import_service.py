@@ -131,7 +131,10 @@ class ImportService:
 
         # Initialize mapping and context
         self._id_mapper = IDMapper(self.manifest, self.db_map, self.client)
-        self._query_remapper = QueryRemapper(self._id_mapper)
+        self._query_remapper = QueryRemapper(
+            id_mapper=self._id_mapper,
+            unmapped_ids_mode=self.config.unmapped_ids,
+        )
 
         logger.info("Export package loaded successfully.")
 
@@ -428,11 +431,29 @@ class ImportService:
                 f"{summary['dashboards']['failed']} failed."
             )
 
+        # Log unmapped ID summary if any events were recorded
+        context = self._get_context()
+        collector = context.unmapped_id_collector
+        if collector.has_events:
+            logger.warning(
+                f"{len(collector.events)} unmapped IDs caused "
+                f"{collector.skipped_count} entities to be skipped and "
+                f"{collector.stripped_count} fields to be stripped. "
+                f"See import report for details."
+            )
+
     def _save_report(self) -> None:
         """Saves the import report to a file."""
+        import dataclasses
+
         report_path = (
             self.export_dir
             / f"import_report_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
         )
-        write_json_file(self.report, report_path)
+        report_data = dataclasses.asdict(self.report)
+        context = self._get_context()
+        collector = context.unmapped_id_collector
+        if collector.has_events:
+            report_data["unmapped_ids"] = collector.to_report_dict()
+        write_json_file(report_data, report_path)
         logger.info(f"Full import report saved to {report_path}")

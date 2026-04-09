@@ -189,3 +189,119 @@ class ImportReport:
         entity_key = f"{item.entity_type}s"
         if entity_key in self.summary:
             self.summary[entity_key][item.status] += 1
+
+
+# --- Unmapped ID Tracking ---
+
+
+@dataclasses.dataclass
+class UnmappedIDEvent:
+    """A single occurrence of an unmapped ID during import."""
+
+    id_type: Literal["field", "table", "card", "dashboard", "database"]
+    source_id: int
+    source_database_id: int | None
+    source_context: str | None  # e.g. "table 'region_department', column 'num_dep'"
+    entity_type: Literal["card", "dashboard"]
+    entity_source_id: int
+    entity_name: str
+    location: str  # e.g. "template-tag 'Dept' → dimension[2]"
+    action: Literal["skipped", "stripped"]
+
+
+@dataclasses.dataclass
+class UnmappedIDCollector:
+    """Collects unmapped ID events during import for reporting."""
+
+    events: list[UnmappedIDEvent] = dataclasses.field(default_factory=list)
+
+    def record(
+        self,
+        id_type: Literal["field", "table", "card", "dashboard", "database"],
+        source_id: int,
+        entity_type: Literal["card", "dashboard"],
+        entity_source_id: int,
+        entity_name: str,
+        location: str,
+        action: Literal["skipped", "stripped"],
+        source_database_id: int | None = None,
+        source_context: str | None = None,
+    ) -> None:
+        """Record an unmapped ID event."""
+        self.events.append(
+            UnmappedIDEvent(
+                id_type=id_type,
+                source_id=source_id,
+                source_database_id=source_database_id,
+                source_context=source_context,
+                entity_type=entity_type,
+                entity_source_id=entity_source_id,
+                entity_name=entity_name,
+                location=location,
+                action=action,
+            )
+        )
+
+    def to_report_dict(self) -> dict[str, Any]:
+        """Serialize to the unmapped_ids report section.
+
+        Groups events by id_type, then by (source_id, source_database_id),
+        listing all affected entities under each unmapped ID.
+        """
+        if not self.events:
+            return {}
+
+        # Group by id_type → (source_id, source_database_id) → list of affected entities
+        grouped: dict[str, dict[tuple[int, int | None], list[UnmappedIDEvent]]] = {}
+        for event in self.events:
+            if event.id_type not in grouped:
+                grouped[event.id_type] = {}
+            key = (event.source_id, event.source_database_id)
+            if key not in grouped[event.id_type]:
+                grouped[event.id_type][key] = []
+            grouped[event.id_type][key].append(event)
+
+        result: dict[str, Any] = {}
+        for id_type, entries in grouped.items():
+            id_type_list: list[dict[str, Any]] = []
+            for (source_id, source_database_id), events in entries.items():
+                entry: dict[str, Any] = {
+                    "source_id": source_id,
+                    "source_database_id": source_database_id,
+                    "affected_entities": [
+                        {
+                            "entity_type": e.entity_type,
+                            "entity_source_id": e.entity_source_id,
+                            "entity_name": e.entity_name,
+                            "location": e.location,
+                            "action": e.action,
+                        }
+                        for e in events
+                    ],
+                }
+                # Include source_context from the first event that has it
+                for e in events:
+                    if e.source_context:
+                        entry["source_context"] = e.source_context
+                        break
+                id_type_list.append(entry)
+            result[id_type] = id_type_list
+
+        return result
+
+    @property
+    def has_events(self) -> bool:
+        """Whether any unmapped IDs were recorded."""
+        return len(self.events) > 0
+
+    @property
+    def skipped_count(self) -> int:
+        """Number of entities skipped due to unmapped IDs."""
+        return len(
+            {(e.entity_type, e.entity_source_id) for e in self.events if e.action == "skipped"}
+        )
+
+    @property
+    def stripped_count(self) -> int:
+        """Number of fields stripped due to unmapped IDs."""
+        return len([e for e in self.events if e.action == "stripped"])

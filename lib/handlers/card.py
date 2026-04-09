@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import Any
+from typing import Any, Literal, cast
 
 from tqdm import tqdm
 
@@ -21,6 +21,7 @@ from lib.constants import (
     TEMPLATE_TAGS_KEY,
     V57_SOURCE_CARD_KEY,
 )
+from lib.errors import MappingError, MigrationError
 from lib.handlers.base import _CARD_TYPE_TO_MODEL, BaseHandler, ImportContext
 from lib.models import Card
 from lib.utils import clean_for_create, read_json_file
@@ -105,6 +106,34 @@ class CardHandler(BaseHandler):
             else:
                 self._create_card(card, card_data)
 
+        except MappingError as e:
+            # Tier 1: entity skipped due to unmapped critical ID
+            logger.error(f"Skipping card '{card.name}' (ID: {card.id}): {e.message}")
+            id_type = cast(
+                Literal["field", "table", "card", "dashboard", "database"],
+                e.source_type,
+            )
+            source_id = e.source_id if e.source_id is not None else 0
+            self.context.unmapped_id_collector.record(
+                id_type=id_type,
+                source_id=source_id,
+                entity_type="card",
+                entity_source_id=card.id,
+                entity_name=card.name,
+                location=e.location or "unknown",
+                action="skipped",
+                source_database_id=getattr(e, "source_db_id", None),
+            )
+            self._add_report_item(
+                "card",
+                "failed",
+                card.id,
+                None,
+                card.name,
+                f"Unmapped {e.source_type} ID: {e.message}",
+            )
+            if self.context.config.unmapped_ids == "strict":
+                raise MigrationError(f"Import aborted (--unmapped-ids=strict): {e.message}") from e
         except MetabaseAPIError as e:
             self._handle_api_error(card, e)
         except Exception as e:

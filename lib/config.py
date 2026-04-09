@@ -221,6 +221,7 @@ class ImportConfig(BaseModel):
     target_session_token: str | None = None
     target_personal_token: str | None = None
     conflict_strategy: Literal["skip", "overwrite", "rename"] = "skip"
+    unmapped_ids: Literal["skip", "strict", "force"] = "skip"
     dry_run: bool = False
     include_archived: bool = False
     apply_permissions: bool = False
@@ -439,6 +440,17 @@ def get_import_args() -> ImportConfig:
         help="Conflict resolution strategy",
     )
     parser.add_argument(
+        "--unmapped-ids",
+        default="skip",
+        choices=["skip", "strict", "force"],
+        help=(
+            "How to handle unmapped IDs during import. "
+            "'skip': skip entities with critical unmapped IDs, strip advisory ones (default). "
+            "'strict': abort import on any unmapped ID. "
+            "'force': keep source IDs as-is (legacy behavior, may cause errors)."
+        ),
+    )
+    parser.add_argument(
         "--dry-run", action="store_true", help="Perform a dry run without making any changes"
     )
     parser.add_argument(
@@ -483,6 +495,7 @@ def get_import_args() -> ImportConfig:
             target_session_token=args.target_session or os.getenv("MB_TARGET_SESSION_TOKEN"),
             target_personal_token=args.target_token or os.getenv("MB_TARGET_PERSONAL_TOKEN"),
             conflict_strategy=args.conflict,
+            unmapped_ids=args.unmapped_ids,
             dry_run=args.dry_run,
             include_archived=args.include_archived,
             apply_permissions=args.apply_permissions,
@@ -530,6 +543,7 @@ class SyncConfig(BaseModel):
 
     # Import options
     conflict_strategy: Literal["skip", "overwrite", "rename"] = "skip"
+    unmapped_ids: Literal["skip", "strict", "force"] = "skip"
     dry_run: bool = False
     apply_permissions: bool = False
 
@@ -658,6 +672,7 @@ class SyncConfig(BaseModel):
             target_session_token=self.target_session_token,
             target_personal_token=self.target_personal_token,
             conflict_strategy=self.conflict_strategy,
+            unmapped_ids=self.unmapped_ids,
             dry_run=self.dry_run,
             include_archived=self.include_archived,
             apply_permissions=self.apply_permissions,
@@ -763,6 +778,17 @@ def get_sync_args() -> SyncConfig:
         help="Conflict resolution strategy",
     )
     import_group.add_argument(
+        "--unmapped-ids",
+        default="skip",
+        choices=["skip", "strict", "force"],
+        help=(
+            "How to handle unmapped IDs during import. "
+            "'skip': skip entities with critical unmapped IDs, strip advisory ones (default). "
+            "'strict': abort import on any unmapped ID. "
+            "'force': keep source IDs as-is (legacy behavior, may cause errors)."
+        ),
+    )
+    import_group.add_argument(
         "--dry-run", action="store_true", help="Perform a dry run without making any changes"
     )
     import_group.add_argument(
@@ -821,6 +847,7 @@ def get_sync_args() -> SyncConfig:
             include_permissions=args.include_permissions,
             root_collection_ids=root_collection_ids,
             conflict_strategy=args.conflict,
+            unmapped_ids=args.unmapped_ids,
             dry_run=args.dry_run,
             apply_permissions=args.apply_permissions,
             log_level=args.log_level,
