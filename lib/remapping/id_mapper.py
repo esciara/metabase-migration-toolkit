@@ -318,6 +318,52 @@ class IDMapper:
 
     # --- Source context helpers ---
 
+    def get_source_db_name(self, source_db_id: int) -> str | None:
+        """Get the source database name for a given database ID.
+
+        Args:
+            source_db_id: The source database ID.
+
+        Returns:
+            The database name, or None if not found.
+        """
+        return self.manifest.databases.get(source_db_id)
+
+    def get_source_table_meta(
+        self, source_db_id: int, source_table_id: int
+    ) -> dict[str, str | None] | None:
+        """Get structured metadata for a source table ID.
+
+        Args:
+            source_db_id: The source database ID.
+            source_table_id: The source table ID.
+
+        Returns:
+            A dict with keys 'name' and 'schema', or None if not found.
+        """
+        for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
+            if table_meta["id"] == source_table_id:
+                return {"name": table_meta["name"], "schema": table_meta.get("schema")}
+        return None
+
+    def get_source_field_meta(
+        self, source_db_id: int, source_field_id: int
+    ) -> dict[str, str | None] | None:
+        """Get structured metadata for a source field ID.
+
+        Args:
+            source_db_id: The source database ID.
+            source_field_id: The source field ID.
+
+        Returns:
+            A dict with keys 'field_name' and 'table_name', or None if not found.
+        """
+        for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
+            for field_meta in table_meta.get("fields", []):
+                if field_meta["id"] == source_field_id:
+                    return {"field_name": field_meta["name"], "table_name": table_meta["name"]}
+        return None
+
     def get_source_field_context(self, source_db_id: int, source_field_id: int) -> str | None:
         """Get human-readable context for a source field ID.
 

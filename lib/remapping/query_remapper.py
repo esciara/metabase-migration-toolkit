@@ -270,9 +270,13 @@ class QueryRemapper:
                 query[SOURCE_TABLE_KEY] = target_table_id
                 logger.debug(f"Remapped source-table from {source_table} to {target_table_id}")
             elif self.unmapped_ids_mode != "force":
+                table_meta = self.id_mapper.get_source_table_meta(source_db_id, source_table)
                 raise TableMappingError(
                     source_table_id=source_table,
                     source_db_id=source_db_id,
+                    table_name=table_meta["name"] if table_meta else None,
+                    schema_name=table_meta["schema"] if table_meta else None,
+                    source_db_name=self.id_mapper.get_source_db_name(source_db_id),
                     location="dataset_query source-table",
                 )
             else:
@@ -365,9 +369,15 @@ class QueryRemapper:
                             f"to {target_table_id}"
                         )
                     elif self.unmapped_ids_mode != "force":
+                        table_meta = self.id_mapper.get_source_table_meta(
+                            source_db_id, join_source_table
+                        )
                         raise TableMappingError(
                             source_table_id=join_source_table,
                             source_db_id=source_db_id,
+                            table_name=table_meta["name"] if table_meta else None,
+                            schema_name=table_meta["schema"] if table_meta else None,
+                            source_db_name=self.id_mapper.get_source_db_name(source_db_id),
                             location="join clause source-table",
                         )
                     else:
@@ -532,9 +542,15 @@ class QueryRemapper:
                     return result
                 else:
                     if self.unmapped_ids_mode != "force":
+                        field_meta = self.id_mapper.get_source_field_meta(
+                            source_db_id, source_field_id
+                        )
                         raise FieldMappingError(
                             source_field_id=source_field_id,
                             source_db_id=source_db_id,
+                            field_name=field_meta["field_name"] if field_meta else None,
+                            table_name=field_meta["table_name"] if field_meta else None,
+                            source_db_name=self.id_mapper.get_source_db_name(source_db_id),
                             location="v57 MBQL field reference (data[2])",
                         )
                     logger.warning(
@@ -554,9 +570,15 @@ class QueryRemapper:
                     return result
                 else:
                     if self.unmapped_ids_mode != "force":
+                        field_meta = self.id_mapper.get_source_field_meta(
+                            source_db_id, source_field_id
+                        )
                         raise FieldMappingError(
                             source_field_id=source_field_id,
                             source_db_id=source_db_id,
+                            field_name=field_meta["field_name"] if field_meta else None,
+                            table_name=field_meta["table_name"] if field_meta else None,
+                            source_db_name=self.id_mapper.get_source_db_name(source_db_id),
                             location="v56 MBQL field reference (data[1])",
                         )
                     logger.warning(

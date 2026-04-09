@@ -108,7 +108,6 @@ class CardHandler(BaseHandler):
 
         except MappingError as e:
             # Tier 1: entity skipped due to unmapped critical ID
-            logger.error(f"Skipping card '{card.name}' (ID: {card.id}): {e.message}")
             id_type = cast(
                 Literal["field", "table", "card", "dashboard", "database"],
                 e.source_type,
@@ -125,6 +124,10 @@ class CardHandler(BaseHandler):
                     source_context = self.id_mapper.get_source_table_context(
                         source_db_id, source_id
                     )
+            context_suffix = f" ({source_context})" if source_context else ""
+            logger.error(
+                f"Skipping card '{card.name}' (ID: {card.id}): " f"{e.message}{context_suffix}"
+            )
             self.context.unmapped_id_collector.record(
                 id_type=id_type,
                 source_id=source_id,

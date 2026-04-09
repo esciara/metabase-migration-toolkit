@@ -67,15 +67,26 @@ class TableMappingError(MappingError):
         source_table_id: int,
         source_db_id: int,
         table_name: str | None = None,
+        schema_name: str | None = None,
+        source_db_name: str | None = None,
         location: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize table mapping error with table and database information."""
         self.source_db_id = source_db_id
         self.table_name = table_name
-        message = f"No mapping found for table ID {source_table_id} in database {source_db_id}"
+        self.schema_name = schema_name
+        self.source_db_name = source_db_name
         if table_name:
-            message += f" (table: '{table_name}')"
+            schema_part = f" (schema: '{schema_name}')" if schema_name else ""
+            table_part = f"table '{table_name}'{schema_part} (ID: {source_table_id})"
+        else:
+            table_part = f"table ID {source_table_id}"
+        if source_db_name:
+            db_part = f"database '{source_db_name}' (ID: {source_db_id})"
+        else:
+            db_part = f"database {source_db_id}"
+        message = f"No mapping found for {table_part} in {db_part}"
         super().__init__(
             message,
             source_id=source_table_id,
@@ -93,15 +104,26 @@ class FieldMappingError(MappingError):
         source_field_id: int,
         source_db_id: int,
         field_name: str | None = None,
+        table_name: str | None = None,
+        source_db_name: str | None = None,
         location: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize field mapping error with field and database information."""
         self.source_db_id = source_db_id
         self.field_name = field_name
-        message = f"No mapping found for field ID {source_field_id} in database {source_db_id}"
+        self.table_name = table_name
+        self.source_db_name = source_db_name
         if field_name:
-            message += f" (field: '{field_name}')"
+            field_part = f"field '{field_name}' (ID: {source_field_id})"
+        else:
+            field_part = f"field ID {source_field_id}"
+        table_part = f" in table '{table_name}'" if table_name else ""
+        if source_db_name:
+            db_part = f"database '{source_db_name}' (ID: {source_db_id})"
+        else:
+            db_part = f"database {source_db_id}"
+        message = f"No mapping found for {field_part}{table_part} in {db_part}"
         super().__init__(
             message,
             source_id=source_field_id,
