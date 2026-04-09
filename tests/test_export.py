@@ -676,6 +676,7 @@ class TestFetchDatabasesMetadata:
                     {
                         "id": 10,
                         "name": "users",
+                        "schema": "public",
                         "fields": [{"id": 100, "name": "id"}, {"id": 101, "name": "email"}],
                     }
                 ]
@@ -687,7 +688,38 @@ class TestFetchDatabasesMetadata:
 
             assert 1 in exporter.manifest.database_metadata
             assert len(exporter.manifest.database_metadata[1]["tables"]) == 1
-            assert exporter.manifest.database_metadata[1]["tables"][0]["name"] == "users"
+            table = exporter.manifest.database_metadata[1]["tables"][0]
+            assert table["name"] == "users"
+            assert table["schema"] == "public"
+
+    def test_fetch_databases_preserves_null_schema(self, sample_export_config, tmp_path):
+        """Test that schema=None (H2/SQLite) is preserved in metadata."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+        )
+
+        with patch("lib.services.export_service.MetabaseClient") as mock_client_class:
+            mock_client = Mock()
+            mock_client.get_databases.return_value = [{"id": 1, "name": "TestDB"}]
+            mock_client.get_database_metadata.return_value = {
+                "tables": [
+                    {
+                        "id": 10,
+                        "name": "users",
+                        "schema": None,
+                        "fields": [{"id": 100, "name": "id"}],
+                    }
+                ]
+            }
+            mock_client_class.return_value = mock_client
+
+            exporter = MetabaseExporter(config)
+            exporter._fetch_and_store_databases()
+
+            table = exporter.manifest.database_metadata[1]["tables"][0]
+            assert table["schema"] is None
 
     def test_fetch_databases_metadata_error(self, sample_export_config, tmp_path):
         """Test handling of metadata fetch error."""
