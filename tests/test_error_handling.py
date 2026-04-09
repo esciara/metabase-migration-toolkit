@@ -21,7 +21,7 @@ class TestAPIErrorHandling:
 
     @patch("requests.Session.request")
     def test_handle_404_error(self, mock_request):
-        """Test handling of 404 Not Found errors."""
+        """Test handling of 404 Not Found errors — raised immediately, not retried."""
         mock_response = Mock()
         mock_response.status_code = 404
         mock_response.text = "Not Found"
@@ -34,13 +34,16 @@ class TestAPIErrorHandling:
 
         client = MetabaseClient(base_url="https://example.com", session_token="test-token")
 
-        # The retry decorator will retry MetabaseAPIError and eventually raise RetryError
-        with pytest.raises(RetryError):
+        # 404 is a deterministic client error — should be raised immediately, not retried
+        with pytest.raises(MetabaseAPIError) as exc_info:
             client._request("get", "/nonexistent")
+        assert exc_info.value.status_code == 404
+        # Should only be called once (no retries)
+        assert mock_request.call_count == 1
 
     @patch("requests.Session.request")
     def test_handle_401_unauthorized(self, mock_request):
-        """Test handling of 401 Unauthorized errors."""
+        """Test handling of 401 Unauthorized errors — raised immediately, not retried."""
         mock_response = Mock()
         mock_response.status_code = 401
         mock_response.text = "Unauthorized"
@@ -53,9 +56,12 @@ class TestAPIErrorHandling:
 
         client = MetabaseClient(base_url="https://example.com", session_token="invalid-token")
 
-        # The retry decorator will retry MetabaseAPIError and eventually raise RetryError
-        with pytest.raises(RetryError):
+        # 401 is a deterministic client error — should be raised immediately, not retried
+        with pytest.raises(MetabaseAPIError) as exc_info:
             client._request("get", "/test")
+        assert exc_info.value.status_code == 401
+        # Should only be called once (no retries)
+        assert mock_request.call_count == 1
 
     @patch("requests.Session.request")
     def test_handle_500_server_error(self, mock_request):

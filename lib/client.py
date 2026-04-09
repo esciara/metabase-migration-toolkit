@@ -8,7 +8,7 @@ import logging
 from typing import Any
 
 import requests
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from lib.utils import TOOL_VERSION
 
@@ -28,6 +28,28 @@ class MetabaseAPIError(Exception):
     def __str__(self) -> str:
         """Return a formatted string representation of the error."""
         return f"Metabase API request failed [{self.status_code}]: {self.message}"
+
+
+def _should_retry(exception: BaseException) -> bool:
+    """Determine if a request should be retried based on the exception type.
+
+    Only retries transient errors:
+    - ConnectionError / Timeout (network issues)
+    - 429 (rate limiting) and 5xx (server errors)
+
+    Deterministic client errors (400, 403, 404, etc.) are raised immediately.
+    """
+    if isinstance(exception, requests.exceptions.ConnectionError | requests.exceptions.Timeout):
+        return True
+    if isinstance(exception, MetabaseAPIError) and exception.status_code in [
+        429,
+        500,
+        502,
+        503,
+        504,
+    ]:
+        return True
+    return False
 
 
 class MetabaseClient:
@@ -102,26 +124,10 @@ class MetabaseClient:
             headers["X-API-KEY"] = str(self._session.headers["X-API-KEY"])
         return headers
 
-    def _should_retry(self, exception: BaseException) -> bool:
-        """Determines if a request should be retried."""
-        if isinstance(exception, requests.exceptions.ConnectionError | requests.exceptions.Timeout):
-            return True
-        if isinstance(exception, MetabaseAPIError) and exception.status_code in [
-            429,
-            500,
-            502,
-            503,
-            504,
-        ]:
-            return True
-        return False
-
     @retry(
         wait=wait_exponential(multiplier=1, min=2, max=30),
         stop=stop_after_attempt(5),
-        retry=retry_if_exception_type(
-            (requests.exceptions.ConnectionError, requests.exceptions.Timeout, MetabaseAPIError)
-        ),
+        retry=retry_if_exception(_should_retry),
         before_sleep=lambda retry_state: logger.warning(
             f"Retrying API call due to "
             f"{retry_state.outcome.exception() if retry_state.outcome is not None else 'unknown error'} "

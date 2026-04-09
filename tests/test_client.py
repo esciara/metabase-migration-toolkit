@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from lib.client import MetabaseAPIError, MetabaseClient
+from lib.client import MetabaseAPIError, MetabaseClient, _should_retry
 
 
 class TestMetabaseAPIError:
@@ -257,52 +257,44 @@ class TestMetabaseClientRequest:
         assert call_kwargs["json"] == data
 
 
-class TestMetabaseClientShouldRetry:
-    """Test suite for MetabaseClient._should_retry method."""
+class TestShouldRetry:
+    """Test suite for _should_retry module-level function."""
 
     def test_should_retry_on_connection_error(self):
         """Test that connection errors trigger retry."""
-        client = MetabaseClient(base_url="https://example.com", session_token="test-token")
         error = requests.exceptions.ConnectionError()
 
-        assert client._should_retry(error) is True
+        assert _should_retry(error) is True
 
     def test_should_retry_on_timeout(self):
         """Test that timeout errors trigger retry."""
-        client = MetabaseClient(base_url="https://example.com", session_token="test-token")
         error = requests.exceptions.Timeout()
 
-        assert client._should_retry(error) is True
+        assert _should_retry(error) is True
 
     def test_should_retry_on_rate_limit(self):
         """Test that 429 rate limit errors trigger retry."""
-        client = MetabaseClient(base_url="https://example.com", session_token="test-token")
         error = MetabaseAPIError("Rate limited", status_code=429)
 
-        assert client._should_retry(error) is True
+        assert _should_retry(error) is True
 
     def test_should_retry_on_server_errors(self):
         """Test that 5xx server errors trigger retry."""
-        client = MetabaseClient(base_url="https://example.com", session_token="test-token")
-
         for status_code in [500, 502, 503, 504]:
             error = MetabaseAPIError("Server error", status_code=status_code)
-            assert client._should_retry(error) is True, f"Should retry on {status_code}"
+            assert _should_retry(error) is True, f"Should retry on {status_code}"
 
     def test_should_not_retry_on_client_error(self):
         """Test that client errors (4xx except 429) don't trigger retry."""
-        client = MetabaseClient(base_url="https://example.com", session_token="test-token")
-
         for status_code in [400, 401, 403, 404]:
             error = MetabaseAPIError("Client error", status_code=status_code)
-            assert client._should_retry(error) is False, f"Should not retry on {status_code}"
+            assert _should_retry(error) is False, f"Should not retry on {status_code}"
 
     def test_should_not_retry_on_generic_exception(self):
         """Test that generic exceptions don't trigger retry."""
-        client = MetabaseClient(base_url="https://example.com", session_token="test-token")
         error = ValueError("Some error")
 
-        assert client._should_retry(error) is False
+        assert _should_retry(error) is False
 
 
 class TestMetabaseClientGetPaginated:
