@@ -245,6 +245,7 @@ class ExportService:
                     parent_id=actual_parent_id,
                     personal_owner_id=collection_data.get("personal_owner_id"),
                     path=current_path,
+                    type=collection_data.get("type"),
                 )
                 self.manifest.collections.append(collection_obj)
 

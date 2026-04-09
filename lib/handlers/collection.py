@@ -45,6 +45,39 @@ class CollectionHandler(BaseHandler):
         Args:
             collection: The collection to import.
         """
+        # Skip the Trash collection — it's a Metabase-internal protected collection
+        # that already exists on every instance and cannot be updated via API (403).
+        if collection.type == "trash":
+            target_trash = self._find_target_trash_collection()
+            if target_trash is not None:
+                self.id_mapper.set_collection_mapping(collection.id, target_trash["id"])
+                logger.info(
+                    "Skipping system Trash collection "
+                    f"(mapping source ID {collection.id} to target Trash ID {target_trash['id']})"
+                )
+                self._add_report_item(
+                    "collection",
+                    "skipped",
+                    collection.id,
+                    target_trash["id"],
+                    collection.name,
+                    "System Trash collection (skipped)",
+                )
+            else:
+                logger.warning(
+                    f"Source collection '{collection.name}' (ID: {collection.id}) is a Trash "
+                    "collection but no Trash collection was found on the target instance. Skipping."
+                )
+                self._add_report_item(
+                    "collection",
+                    "skipped",
+                    collection.id,
+                    None,
+                    collection.name,
+                    "System Trash collection (no target Trash found)",
+                )
+            return
+
         try:
             target_parent_id = self.id_mapper.resolve_collection_id(collection.parent_id)
 
@@ -74,6 +107,19 @@ class CollectionHandler(BaseHandler):
         """
         for tc in self._flat_target_collections:
             if tc["name"] == name and tc.get("parent_id") == parent_id:
+                return tc
+        return None
+
+    def _find_target_trash_collection(self) -> dict[str, Any] | None:
+        """Finds the Trash collection on the target instance.
+
+        Searches the flattened target collections for one with type=="trash".
+
+        Returns:
+            The target Trash collection dict or None if not found.
+        """
+        for tc in self._flat_target_collections:
+            if tc.get("type") == "trash":
                 return tc
         return None
 
@@ -187,12 +233,14 @@ class CollectionHandler(BaseHandler):
                     flat_list.extend(self._flatten_collection_tree(coll["children"], None))
                 continue
 
-            # Add current collection with its parent_id
-            flat_coll = {
+            # Add current collection with its parent_id and type
+            flat_coll: dict[str, Any] = {
                 "id": coll["id"],
                 "name": coll["name"],
                 "parent_id": parent_id,
             }
+            if "type" in coll:
+                flat_coll["type"] = coll["type"]
             flat_list.append(flat_coll)
 
             # Recursively process children

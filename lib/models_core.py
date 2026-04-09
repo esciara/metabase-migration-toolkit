@@ -22,6 +22,7 @@ class Collection:
     parent_id: int | None = None
     personal_owner_id: int | None = None
     path: str = ""  # Filesystem path, populated during export
+    type: str | None = None  # Metabase collection type (e.g. "trash" for the Trash collection)
 
 
 @dataclasses.dataclass

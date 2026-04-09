@@ -427,6 +427,149 @@ class TestImportSingleCollection:
         import_context.report.add.assert_called()
 
 
+class TestTrashCollectionSkip:
+    """Tests for skipping the Trash collection during import."""
+
+    def test_skip_trash_collection_with_target_trash(
+        self, import_context, mock_client, mock_id_mapper
+    ):
+        """Test that Trash collection is skipped and mapped to target Trash."""
+        handler = CollectionHandler(import_context)
+        handler._flat_target_collections = [
+            {"id": 500, "name": "Corbeille", "parent_id": None, "type": "trash"},
+            {"id": 100, "name": "Other", "parent_id": None},
+        ]
+
+        collection = Collection(
+            id=42,
+            name="Corbeille",
+            slug="corbeille",
+            path="collections/Corbeille",
+            description="Trash collection",
+            parent_id=None,
+            type="trash",
+        )
+
+        handler._import_single_collection(collection)
+
+        # Should map source trash ID to target trash ID
+        mock_id_mapper.set_collection_mapping.assert_called_once_with(42, 500)
+        # Should NOT attempt to create or update
+        mock_client.create_collection.assert_not_called()
+        mock_client.update_collection.assert_not_called()
+        # Should report as skipped
+        import_context.report.add.assert_called_once()
+
+    def test_skip_trash_collection_without_target_trash(
+        self, import_context, mock_client, mock_id_mapper
+    ):
+        """Test that Trash collection is skipped even when no target Trash is found."""
+        handler = CollectionHandler(import_context)
+        handler._flat_target_collections = [
+            {"id": 100, "name": "Other", "parent_id": None},
+        ]
+
+        collection = Collection(
+            id=42,
+            name="Trash",
+            slug="trash",
+            path="collections/Trash",
+            description="Trash collection",
+            parent_id=None,
+            type="trash",
+        )
+
+        handler._import_single_collection(collection)
+
+        # Should NOT map, create, or update
+        mock_id_mapper.set_collection_mapping.assert_not_called()
+        mock_client.create_collection.assert_not_called()
+        mock_client.update_collection.assert_not_called()
+        # Should still report as skipped
+        import_context.report.add.assert_called_once()
+
+    def test_non_trash_collection_not_skipped(self, import_context, mock_client, mock_id_mapper):
+        """Test that non-trash collections are imported normally."""
+        mock_id_mapper.resolve_collection_id.return_value = None
+        mock_client.create_collection.return_value = {"id": 1000, "name": "Normal"}
+
+        handler = CollectionHandler(import_context)
+        handler._flat_target_collections = []
+
+        collection = Collection(
+            id=1,
+            name="Normal",
+            slug="normal",
+            path="collections/Normal",
+            description="Normal collection",
+            parent_id=None,
+            type=None,
+        )
+
+        handler._import_single_collection(collection)
+
+        # Should proceed with normal creation
+        mock_client.create_collection.assert_called_once()
+
+    def test_find_target_trash_collection(self, import_context):
+        """Test _find_target_trash_collection helper."""
+        handler = CollectionHandler(import_context)
+        handler._flat_target_collections = [
+            {"id": 100, "name": "Regular", "parent_id": None},
+            {"id": 200, "name": "Corbeille", "parent_id": None, "type": "trash"},
+            {"id": 300, "name": "Another", "parent_id": None},
+        ]
+
+        result = handler._find_target_trash_collection()
+
+        assert result is not None
+        assert result["id"] == 200
+        assert result["type"] == "trash"
+
+    def test_find_target_trash_collection_not_found(self, import_context):
+        """Test _find_target_trash_collection when no trash exists."""
+        handler = CollectionHandler(import_context)
+        handler._flat_target_collections = [
+            {"id": 100, "name": "Regular", "parent_id": None},
+        ]
+
+        result = handler._find_target_trash_collection()
+
+        assert result is None
+
+
+class TestFlattenCollectionTreeType:
+    """Tests for type field preservation in _flatten_collection_tree."""
+
+    def test_flatten_preserves_type(self, import_context):
+        """Test that type field is preserved when flattening."""
+        handler = CollectionHandler(import_context)
+        collections = [
+            {"id": 1, "name": "Regular", "type": None},
+            {"id": 2, "name": "Trash", "type": "trash"},
+        ]
+
+        result = handler._flatten_collection_tree(collections)
+
+        assert len(result) == 2
+        regular = next(c for c in result if c["id"] == 1)
+        trash = next(c for c in result if c["id"] == 2)
+        assert regular.get("type") is None
+        assert trash["type"] == "trash"
+
+    def test_flatten_works_without_type(self, import_context):
+        """Test that collections without type field still work."""
+        handler = CollectionHandler(import_context)
+        collections = [
+            {"id": 1, "name": "NoType"},
+        ]
+
+        result = handler._flatten_collection_tree(collections)
+
+        assert len(result) == 1
+        assert "type" not in result[0]
+
+
 class TestImportCollections:
     """Tests for importing multiple collections."""
 
