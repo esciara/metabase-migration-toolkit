@@ -209,6 +209,14 @@ class ExportService:
                 )
                 continue
 
+            # Skip trash collection unless explicitly included
+            if collection_data.get("type") == "trash" and not self.config.include_trash:
+                logger.info(
+                    f"Excluding Trash collection '{collection_data['name']}' "
+                    f"(ID: {collection_id}). Use --include-trash to include."
+                )
+                continue
+
             # Handle "root" collection which is a special case
             if isinstance(collection_id, str) and collection_id == "root":
                 logger.info("Processing root collection content...")

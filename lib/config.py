@@ -144,6 +144,7 @@ class ExportConfig(BaseModel):
     include_dashboards: bool = False
     include_archived: bool = False
     include_permissions: bool = False
+    include_trash: bool = False
     root_collection_ids: list[int] | None = None
     log_level: str = "INFO"
 
@@ -332,6 +333,11 @@ def get_export_args() -> ExportConfig:
         help="Include permissions (groups and access control) in the export",
     )
     parser.add_argument(
+        "--include-trash",
+        action="store_true",
+        help="Include the Trash/Corbeille collection in the export (excluded by default)",
+    )
+    parser.add_argument(
         "--root-collections",
         help="Comma-separated list of root collection IDs to export (empty=all)",
     )
@@ -380,6 +386,7 @@ def get_export_args() -> ExportConfig:
             include_dashboards=args.include_dashboards,
             include_archived=args.include_archived,
             include_permissions=args.include_permissions,
+            include_trash=args.include_trash,
             root_collection_ids=root_collection_ids,
             log_level=args.log_level,
         )
@@ -539,6 +546,7 @@ class SyncConfig(BaseModel):
     include_dashboards: bool = False
     include_archived: bool = False
     include_permissions: bool = False
+    include_trash: bool = False
     root_collection_ids: list[int] | None = None
 
     # Import options
@@ -656,6 +664,7 @@ class SyncConfig(BaseModel):
             include_dashboards=self.include_dashboards,
             include_archived=self.include_archived,
             include_permissions=self.include_permissions,
+            include_trash=self.include_trash,
             root_collection_ids=self.root_collection_ids,
             log_level=self.log_level,
         )
@@ -765,6 +774,11 @@ def get_sync_args() -> SyncConfig:
         help="Include permissions (groups and access control)",
     )
     export_group.add_argument(
+        "--include-trash",
+        action="store_true",
+        help="Include the Trash/Corbeille collection in the export (excluded by default)",
+    )
+    export_group.add_argument(
         "--root-collections",
         help="Comma-separated list of root collection IDs to export (empty=all)",
     )
@@ -845,6 +859,7 @@ def get_sync_args() -> SyncConfig:
             include_dashboards=args.include_dashboards,
             include_archived=args.include_archived,
             include_permissions=args.include_permissions,
+            include_trash=args.include_trash,
             root_collection_ids=root_collection_ids,
             conflict_strategy=args.conflict,
             unmapped_ids=args.unmapped_ids,

@@ -59,6 +59,7 @@ class TestExportConfig:
         assert config.source_personal_token is None
         assert config.include_dashboards is False
         assert config.include_archived is False
+        assert config.include_trash is False
         assert config.root_collection_ids is None
         assert config.log_level == "INFO"
 

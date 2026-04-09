@@ -251,6 +251,43 @@ class TestTraverseCollections:
 
             assert len(exporter.manifest.collections) == 0
 
+    def test_traverse_skips_trash_collection_by_default(self, sample_export_config, tmp_path):
+        """Test that trash collections are skipped by default."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+        )
+
+        with patch("lib.services.export_service.MetabaseClient"):
+            exporter = MetabaseExporter(config)
+
+            collections = [{"id": 10, "name": "Corbeille", "type": "trash", "children": []}]
+
+            with patch.object(exporter, "_process_collection_items") as mock_process:
+                exporter._traverse_collections(collections)
+                mock_process.assert_not_called()
+
+            assert len(exporter.manifest.collections) == 0
+
+    def test_traverse_includes_trash_collection_when_flag_set(self, sample_export_config, tmp_path):
+        """Test that trash collections are included when include_trash is True."""
+        config = ExportConfig(
+            source_url="https://example.com",
+            export_dir=str(tmp_path / "export"),
+            source_session_token="token",
+            include_trash=True,
+        )
+
+        with patch("lib.services.export_service.MetabaseClient"):
+            exporter = MetabaseExporter(config)
+
+            collections = [{"id": 10, "name": "Corbeille", "type": "trash", "children": []}]
+
+            with patch.object(exporter, "_process_collection_items") as mock_process:
+                exporter._traverse_collections(collections)
+                mock_process.assert_called_once()
+
     def test_traverse_processes_root_collection(self, sample_export_config, tmp_path):
         """Test processing root collection."""
         config = ExportConfig(
