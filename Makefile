@@ -5,13 +5,14 @@
 
 # Variables
 PYTHON := python3
-PIP := $(PYTHON) -m pip
-PYTEST := $(PYTHON) -m pytest
-BLACK := $(PYTHON) -m black
-RUFF := $(PYTHON) -m ruff
-MYPY := $(PYTHON) -m mypy
-BANDIT := $(PYTHON) -m bandit
-SAFETY := $(PYTHON) -m safety
+UV_RUN := uv run
+PIP := $(UV_RUN) pip
+PYTEST := $(UV_RUN) pytest
+BLACK := $(UV_RUN) black
+RUFF := $(UV_RUN) ruff
+MYPY := $(UV_RUN) mypy
+BANDIT := $(UV_RUN) bandit
+SAFETY := $(UV_RUN) safety
 
 help: ## Show this help message
 	@echo "Usage: make [target]"
@@ -192,7 +193,7 @@ format: ## Format code with black and ruff
 
 format-check: ## Check code formatting without making changes
 	$(BLACK) --check lib/ tests/ *.py
-	$(PYTHON) -m isort --check-only lib/ tests/ *.py
+	$(UV_RUN) isort --check-only lib/ tests/ *.py
 
 type-check: ## Run type checking with mypy
 	@echo "Running mypy type checker..."
@@ -218,16 +219,16 @@ pre-commit-update: ## Update pre-commit hooks
 quality: lint type-check security ## Run all quality checks
 
 build: clean ## Build distribution packages
-	$(PYTHON) -m build
+	$(UV_RUN) build
 	@echo ""
 	@echo "Build complete! Packages in dist/"
 
 build-check: build ## Build and check package with twine
-	$(PYTHON) -m twine check dist/*
+	$(UV_RUN) twine check dist/*
 
 publish-test: build-check ## Publish to TestPyPI
 	@echo "Publishing to TestPyPI..."
-	$(PYTHON) -m twine upload --repository testpypi dist/*
+	$(UV_RUN) twine upload --repository testpypi dist/*
 	@echo ""
 	@echo "Published to TestPyPI!"
 	@echo "Install with: pip install --index-url https://test.pypi.org/simple/ metabase-migration-toolkit"
@@ -237,7 +238,7 @@ publish: build-check ## Publish to PyPI (use with caution!)
 	@read -p "Are you sure? [y/N] " -n 1 -r; \
 	echo; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
-		$(PYTHON) -m twine upload dist/*; \
+		$(UV_RUN) twine upload dist/*; \
 		echo ""; \
 		echo "Published to PyPI!"; \
 	else \
