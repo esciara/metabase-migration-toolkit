@@ -91,6 +91,14 @@ class CardHandler(BaseHandler):
 
             # Remap collection
             target_collection_id = self.id_mapper.resolve_collection_id(card.collection_id)
+            if card.collection_id is not None and target_collection_id is None:
+                error_msg = f"Unmapped collection ID: {card.collection_id}"
+                logger.error(
+                    f"Skipping card '{card.name}' (ID: {card.id}): "
+                    f"No mapping found for collection ID {card.collection_id}"
+                )
+                self._add_report_item("card", "failed", card.id, None, card.name, error_msg)
+                return
             card_data["collection_id"] = target_collection_id
 
             # Handle conflicts using cached collection items lookup

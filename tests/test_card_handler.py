@@ -962,6 +962,79 @@ class TestImportSingleCard:
         # Should report failure
         import_context.report.add.assert_called()
 
+    def test_import_card_skipped_when_collection_unmapped(
+        self, import_context, mock_client, tmp_path
+    ):
+        """Test that a card is skipped when its source collection has no mapping."""
+        card_file = tmp_path / "test_card.json"
+        card_file.write_text(
+            json.dumps(
+                {
+                    "name": "Test Card",
+                    "dataset_query": {"query": {"source-table": 10}, "database": 1},
+                }
+            )
+        )
+
+        # Source card has collection_id=10, but resolve_collection_id returns None
+        import_context.id_mapper.resolve_collection_id.return_value = None
+
+        handler = CardHandler(import_context)
+        card = Card(
+            id=1,
+            name="Test Card",
+            file_path="test_card.json",
+            collection_id=10,
+            database_id=1,
+            archived=False,
+            dataset=False,
+        )
+
+        handler._import_single_card(card)
+
+        # Should NOT attempt to create the card
+        mock_client.create_card.assert_not_called()
+        # Should report failure with unmapped collection reason
+        import_context.report.add.assert_called()
+        report_item = import_context.report.add.call_args[0][0]
+        assert report_item.status == "failed"
+        assert "Unmapped collection ID" in report_item.reason
+
+    def test_import_card_allowed_when_source_collection_is_none(
+        self, import_context, mock_client, tmp_path
+    ):
+        """Test that a card with no source collection (collection_id=None) is still imported."""
+        card_file = tmp_path / "test_card.json"
+        card_file.write_text(
+            json.dumps(
+                {
+                    "name": "Root Card",
+                    "dataset_query": {"query": {"source-table": 10}, "database": 1},
+                }
+            )
+        )
+
+        # Source card has no collection (root level) — resolve returns None, which is fine
+        import_context.id_mapper.resolve_collection_id.return_value = None
+        mock_client.get_collection_items.return_value = {"data": []}
+        mock_client.create_card.return_value = {"id": 2000, "name": "Root Card"}
+
+        handler = CardHandler(import_context)
+        card = Card(
+            id=5,
+            name="Root Card",
+            file_path="test_card.json",
+            collection_id=None,
+            database_id=1,
+            archived=False,
+            dataset=False,
+        )
+
+        handler._import_single_card(card)
+
+        # Should still create the card — source had no collection
+        mock_client.create_card.assert_called_once()
+
 
 class TestMetricCardConflictResolution:
     """Tests that metric and question cards with the same name don't collide."""
