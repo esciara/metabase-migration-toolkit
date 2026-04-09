@@ -26,6 +26,7 @@ from lib.constants import (
     V57_LIB_UUID,
     V57_SOURCE_CARD_KEY,
 )
+from lib.errors import CardMappingError, FieldMappingError, TableMappingError
 from lib.remapping.id_mapper import IDMapper
 
 logger = logging.getLogger("metabase_migration")
@@ -213,10 +214,15 @@ class QueryRemapper:
             if target_card_id:
                 query[V57_SOURCE_CARD_KEY] = target_card_id
                 logger.debug(f"Remapped v57 source-card from {source_card} to {target_card_id}")
+            elif self.unmapped_ids_mode != "force":
+                raise CardMappingError(
+                    source_card_id=source_card,
+                    location="query source-card (v57)",
+                )
             else:
                 logger.warning(
                     f"No card mapping found for v57 source-card {source_card}. "
-                    f"Keeping original card ID."
+                    f"Keeping original card ID (--unmapped-ids=force)."
                 )
 
         # v56 format (or v57 for tables): source-table
@@ -233,10 +239,17 @@ class QueryRemapper:
             if target_table_id:
                 query[SOURCE_TABLE_KEY] = target_table_id
                 logger.debug(f"Remapped source-table from {source_table} to {target_table_id}")
+            elif self.unmapped_ids_mode != "force":
+                raise TableMappingError(
+                    source_table_id=source_table,
+                    source_db_id=source_db_id,
+                    location="dataset_query source-table",
+                )
             else:
                 logger.warning(
                     f"No table ID mapping found for source table {source_table} "
-                    f"in database {source_db_id}. Keeping original table ID."
+                    f"in database {source_db_id}. Keeping original table ID "
+                    f"(--unmapped-ids=force)."
                 )
 
     def _remap_card_reference(self, container: dict[str, Any], key: str, card_ref: str) -> None:
@@ -248,6 +261,15 @@ class QueryRemapper:
                 container[key] = f"{CARD_REF_PREFIX}{target_card_id}"
                 logger.debug(
                     f"Remapped {key} from card__{source_card_id} to card__{target_card_id}"
+                )
+            elif self.unmapped_ids_mode != "force":
+                raise CardMappingError(
+                    source_card_id=source_card_id,
+                    location=f"v56 card reference '{card_ref}' in {key}",
+                )
+            else:
+                logger.warning(
+                    f"No card mapping for {card_ref}. " f"Keeping original (--unmapped-ids=force)."
                 )
         except ValueError:
             logger.warning(f"Invalid card reference format: {card_ref}")
@@ -284,6 +306,16 @@ class QueryRemapper:
                     logger.debug(
                         f"Remapped v57 join source-card from {source_card} to {target_card_id}"
                     )
+                elif self.unmapped_ids_mode != "force":
+                    raise CardMappingError(
+                        source_card_id=source_card,
+                        location="join clause source-card (v57)",
+                    )
+                else:
+                    logger.warning(
+                        f"No card mapping found for v57 join source-card {source_card}. "
+                        f"Keeping original card ID (--unmapped-ids=force)."
+                    )
 
             # v56 format: source-table directly in join
             join_source_table = join.get(SOURCE_TABLE_KEY)
@@ -301,6 +333,18 @@ class QueryRemapper:
                         logger.debug(
                             f"Remapped join source-table from {join_source_table} "
                             f"to {target_table_id}"
+                        )
+                    elif self.unmapped_ids_mode != "force":
+                        raise TableMappingError(
+                            source_table_id=join_source_table,
+                            source_db_id=source_db_id,
+                            location="join clause source-table",
+                        )
+                    else:
+                        logger.warning(
+                            f"No table ID mapping found for join source-table "
+                            f"{join_source_table} in database {source_db_id}. "
+                            f"Keeping original (--unmapped-ids=force)."
                         )
 
             # Remap condition field IDs
@@ -439,9 +483,15 @@ class QueryRemapper:
                     )
                     return result
                 else:
+                    if self.unmapped_ids_mode != "force":
+                        raise FieldMappingError(
+                            source_field_id=source_field_id,
+                            source_db_id=source_db_id,
+                            location="v57 MBQL field reference (data[2])",
+                        )
                     logger.warning(
                         f"No field ID mapping found for v57 source field {source_field_id} "
-                        f"in database {source_db_id}. Keeping original field ID."
+                        f"in database {source_db_id}. Keeping original (--unmapped-ids=force)."
                     )
                 return data
 
@@ -455,9 +505,15 @@ class QueryRemapper:
                     logger.debug(f"Remapped field ID from {source_field_id} to {target_field_id}")
                     return result
                 else:
+                    if self.unmapped_ids_mode != "force":
+                        raise FieldMappingError(
+                            source_field_id=source_field_id,
+                            source_db_id=source_db_id,
+                            location="v56 MBQL field reference (data[1])",
+                        )
                     logger.warning(
                         f"No field ID mapping found for source field {source_field_id} "
-                        f"in database {source_db_id}. Keeping original field ID."
+                        f"in database {source_db_id}. Keeping original (--unmapped-ids=force)."
                     )
             return data
 
@@ -477,9 +533,14 @@ class QueryRemapper:
                 logger.debug(f"Remapped metric card ID from {source_card_id} to {target_card_id}")
                 return result
             else:
+                if self.unmapped_ids_mode != "force":
+                    raise CardMappingError(
+                        source_card_id=source_card_id,
+                        location="MBQL metric reference (data[2])",
+                    )
                 logger.warning(
                     f"No card ID mapping found for metric source card {source_card_id}. "
-                    f"Keeping original ID."
+                    f"Keeping original ID (--unmapped-ids=force)."
                 )
             return data
 
@@ -583,6 +644,16 @@ class QueryRemapper:
                 target_card_id = self.id_mapper.resolve_card_id(source_card_id)
                 if target_card_id:
                     clean_mapping["card_id"] = target_card_id
+                elif self.unmapped_ids_mode != "force":
+                    raise CardMappingError(
+                        source_card_id=source_card_id,
+                        location="dashcard parameter_mapping card_id",
+                    )
+                else:
+                    logger.warning(
+                        f"No card mapping for dashcard parameter_mapping card_id "
+                        f"{source_card_id}. Keeping original (--unmapped-ids=force)."
+                    )
 
             # Remap field IDs in target
             if "target" in clean_mapping and source_db_id:
@@ -719,9 +790,14 @@ class QueryRemapper:
                 )
                 return f"{{{{#{target_card_id}{suffix}}}}}"
             else:
+                if self.unmapped_ids_mode != "force":
+                    raise CardMappingError(
+                        source_card_id=source_card_id,
+                        location=f"native SQL reference '{{{{#{source_card_id}{suffix}}}}}'",
+                    )
                 logger.warning(
                     f"No card mapping found for card reference {{{{#{source_card_id}{suffix}}}}}. "
-                    f"Keeping original reference."
+                    f"Keeping original reference (--unmapped-ids=force)."
                 )
                 return match.group(0)
 
@@ -783,9 +859,15 @@ class QueryRemapper:
                         )
                         continue
                     else:
+                        if self.unmapped_ids_mode != "force":
+                            raise CardMappingError(
+                                source_card_id=source_card_id,
+                                location=f"template-tag '{tag_name}' card-id",
+                            )
                         logger.warning(
                             f"No card mapping found for template tag '{tag_name}' "
-                            f"with card-id {source_card_id}. Keeping original."
+                            f"with card-id {source_card_id}. Keeping original "
+                            f"(--unmapped-ids=force)."
                         )
 
             elif tag_data.get("type") == "dimension":

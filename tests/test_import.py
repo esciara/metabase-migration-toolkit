@@ -427,7 +427,9 @@ class TestRemapCardQuery:
             databases={1: "DB1", 3: "DB3"},
         )
         db_map = DatabaseMap(by_id={"1": 10, "3": 4})
-        return IDMapper(manifest, db_map)
+        mapper = IDMapper(manifest, db_map)
+        mapper.set_card_mapping(50, 500)
+        return mapper
 
     def test_remap_card_query_always_sets_database_field(self, id_mapper):
         """Test that database field is always set in dataset_query."""
@@ -1032,6 +1034,14 @@ class TestModelImport:
             importer = MetabaseImporter(config)
             importer._load_export_package()
 
+            # Add table/field mappings so remapping succeeds
+            # SAMPLE_MODEL has source-table: 15, fields: [20, 21, 22, 23] in db 2
+            importer._id_mapper._table_map[(2, 15)] = 115
+            importer._id_mapper._field_map[(2, 20)] = 120
+            importer._id_mapper._field_map[(2, 21)] = 121
+            importer._id_mapper._field_map[(2, 22)] = 122
+            importer._id_mapper._field_map[(2, 23)] = 123
+
             # Initialize the context (normally done in _perform_import)
             importer._context = ImportContext(
                 config=importer.config,
@@ -1121,6 +1131,12 @@ class TestModelImport:
 
             importer = MetabaseImporter(config)
             importer._load_export_package()
+
+            # Add table/field mappings so remapping succeeds
+            # SAMPLE_CARD has source-table: 10, fields: [5, 3] in db 2
+            importer._id_mapper._table_map[(2, 10)] = 110
+            importer._id_mapper._field_map[(2, 5)] = 105
+            importer._id_mapper._field_map[(2, 3)] = 103
 
             # Initialize the context (normally done in _perform_import)
             importer._context = ImportContext(

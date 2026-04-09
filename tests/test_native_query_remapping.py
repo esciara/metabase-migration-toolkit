@@ -7,6 +7,7 @@ template-tags card-id remapping for both v56 and v57 formats.
 import pytest
 
 from lib.constants import MetabaseVersion
+from lib.errors import CardMappingError, FieldMappingError
 from lib.handlers.card import CardHandler
 from lib.models import DatabaseMap, Manifest, ManifestMeta
 from lib.remapping.id_mapper import IDMapper
@@ -243,10 +244,11 @@ class TestQueryRemapperNativeSQL:
         assert "{{#60-" not in result
 
     def test_remap_sql_preserves_unmapped_references(self, remapper):
-        """Test that unmapped card references are preserved."""
+        """Test that unmapped card references raise CardMappingError."""
         sql = "SELECT * FROM {{#999-unknown-model}}"
-        result = remapper._remap_sql_card_references(sql)
-        assert "{{#999-unknown-model}}" in result
+        with pytest.raises(CardMappingError) as exc_info:
+            remapper._remap_sql_card_references(sql)
+        assert exc_info.value.source_id == 999
 
     def test_remap_sql_preserves_other_content(self, remapper):
         """Test that non-card content is preserved."""
@@ -321,17 +323,17 @@ class TestQueryRemapperTemplateTags:
         assert "500-model" in result
 
     def test_remap_template_tags_preserves_unmapped_cards(self, remapper):
-        """Test that unmapped card references are preserved."""
+        """Test that unmapped card references raise CardMappingError."""
         template_tags = {
             "999-unknown": {
                 "type": "card",
                 "card-id": 999,
             }
         }
-        result = remapper._remap_template_tags(template_tags)
+        with pytest.raises(CardMappingError) as exc_info:
+            remapper._remap_template_tags(template_tags)
 
-        assert "999-unknown" in result
-        assert result["999-unknown"]["card-id"] == 999
+        assert exc_info.value.source_id == 999
 
 
 class TestQueryRemapperNativeQueryV56:
@@ -546,6 +548,8 @@ class TestMBQLQueryRemappingV57:
             db_mapping={1: 100},
             card_mapping={50: 500},
         )
+        # Add table mapping for source-table: 10 used in test_remap_mbql_v57_joins
+        mapper._table_map[(1, 10)] = 1010
         return mapper
 
     @pytest.fixture
@@ -1119,7 +1123,7 @@ class TestDimensionTemplateTagRemapping:
         assert tag["dimension"][1] == 9000
 
     def test_remap_dimension_tag_unmapped_field(self, remapper):
-        """Test graceful degradation when a field ID has no mapping."""
+        """Test that unmapped field ID in dimension template-tag raises FieldMappingError."""
         card_data = {
             "database_id": 1,
             "dataset_query": {
@@ -1148,13 +1152,10 @@ class TestDimensionTemplateTagRemapping:
             },
         }
 
-        result, success = remapper.remap_card_data(card_data)
+        with pytest.raises(FieldMappingError) as exc_info:
+            remapper.remap_card_data(card_data)
 
-        assert success
-        stage = result["dataset_query"]["stages"][0]
-        tag = stage["template-tags"]["unknown_field"]
-        # Unmapped field should be preserved with original ID
-        assert tag["dimension"][2] == 99999
+        assert exc_info.value.source_id == 99999
 
 
 class TestQueryRemapperEdgeCases:
