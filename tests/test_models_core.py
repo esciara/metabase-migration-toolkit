@@ -231,3 +231,155 @@ class TestUnmappedIDCollectorToReportDict:
         collector = UnmappedIDCollector()
         report = collector.to_report_dict()
         assert report == {}
+
+    def test_unmapped_id_collector_to_report_dict_grouping(self):
+        """Test that to_report_dict groups events into by_type with count and items."""
+        collector = UnmappedIDCollector()
+
+        # Two field events for different source IDs
+        collector.record(
+            id_type="field",
+            source_id=500,
+            entity_type="card",
+            entity_source_id=42,
+            entity_name="Revenue Report",
+            location="dimension[2]",
+            action="skipped",
+            source_database_id=1,
+            source_context="table 'users', column 'email'",
+        )
+        collector.record(
+            id_type="field",
+            source_id=600,
+            entity_type="card",
+            entity_source_id=43,
+            entity_name="Other Report",
+            location="filter[0]",
+            action="stripped",
+            source_database_id=1,
+        )
+
+        # One table event
+        collector.record(
+            id_type="table",
+            source_id=100,
+            entity_type="dashboard",
+            entity_source_id=10,
+            entity_name="Sales Dash",
+            location="source-table",
+            action="stripped",
+            source_database_id=2,
+        )
+
+        report = collector.to_report_dict()
+
+        # Must have the top-level by_type wrapper
+        assert "by_type" in report, "Report must contain 'by_type' key"
+        by_type = report["by_type"]
+
+        # Grouped by id_type
+        assert "field" in by_type
+        assert "table" in by_type
+
+        # Each type has count and items
+        assert "count" in by_type["field"]
+        assert "items" in by_type["field"]
+        assert by_type["field"]["count"] == 2  # Two distinct field source IDs (500, 600)
+
+        assert by_type["table"]["count"] == 1
+        assert len(by_type["table"]["items"]) == 1
+
+        # Check item structure: source_context from first event with it
+        field_items = by_type["field"]["items"]
+        item_500 = next(i for i in field_items if i["source_id"] == 500)
+        assert item_500["source_database_id"] == 1
+        assert item_500["source_context"] == "table 'users', column 'email'"
+        assert len(item_500["affected_entities"]) == 1
+
+    def test_unmapped_id_collector_to_report_dict_action_summary(self):
+        """Test action_summary with entities_skipped, fields_stripped, total_unmapped_ids."""
+        collector = UnmappedIDCollector()
+
+        # Two skipped events for different entities but same field
+        collector.record(
+            id_type="field",
+            source_id=500,
+            entity_type="card",
+            entity_source_id=42,
+            entity_name="Revenue Report",
+            location="dimension[2]",
+            action="skipped",
+            source_database_id=1,
+        )
+        collector.record(
+            id_type="field",
+            source_id=500,
+            entity_type="card",
+            entity_source_id=43,
+            entity_name="Other Report",
+            location="filter[0]",
+            action="skipped",
+            source_database_id=1,
+        )
+
+        # One stripped event for a different unmapped ID
+        collector.record(
+            id_type="table",
+            source_id=100,
+            entity_type="dashboard",
+            entity_source_id=10,
+            entity_name="Sales Dash",
+            location="source-table",
+            action="stripped",
+            source_database_id=2,
+        )
+
+        report = collector.to_report_dict()
+
+        assert "action_summary" in report, "Report must contain 'action_summary' key"
+        summary = report["action_summary"]
+
+        # 2 unique entities skipped: (card, 42) and (card, 43)
+        assert summary["entities_skipped"] == 2
+        # 1 stripped event
+        assert summary["fields_stripped"] == 1
+        # 2 total unique unmapped IDs: (500, 1, "field") and (100, 2, "table")
+        assert summary["total_unmapped_ids"] == 2
+
+    def test_unmapped_id_collector_to_report_dict_dedup(self):
+        """Test that same source ID affecting multiple entities is grouped correctly."""
+        collector = UnmappedIDCollector()
+
+        # Same field ID 500 in db 1 affects three different cards
+        for card_id, card_name in [(42, "Card A"), (43, "Card B"), (44, "Card C")]:
+            collector.record(
+                id_type="field",
+                source_id=500,
+                entity_type="card",
+                entity_source_id=card_id,
+                entity_name=card_name,
+                location="filter[0]",
+                action="skipped",
+                source_database_id=1,
+                source_context="table 'orders', column 'region'",
+            )
+
+        report = collector.to_report_dict()
+        by_type = report["by_type"]
+
+        # Only one item in field group (source_id=500, source_database_id=1)
+        assert by_type["field"]["count"] == 1
+        item = by_type["field"]["items"][0]
+        assert item["source_id"] == 500
+        assert item["source_database_id"] == 1
+
+        # But three affected entities
+        assert len(item["affected_entities"]) == 3
+
+        # Check affected entity structure matches plan spec
+        entity = item["affected_entities"][0]
+        assert "entity_type" in entity
+        assert "source_id" in entity, "Affected entity must have 'source_id' key (not entity_source_id)"
+        assert "name" in entity, "Affected entity must have 'name' key (not entity_name)"
+        assert "action_taken" in entity, "Affected entity must have 'action_taken' key (not action)"
+        assert "location" in entity

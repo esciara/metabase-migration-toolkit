@@ -490,6 +490,47 @@ class TestTier2StripVisualizerRefs:
         assert w.source_id == 123
 
 
+class TestRegressionFieldLeak:
+    """Regression tests for real-world field leak scenarios."""
+
+    def test_regression_field_100294_dept_filter(self) -> None:
+        """Regression: field 100294 in template-tag 'Dept' dimension must not leak through.
+
+        Real-world scenario from import.log: a card has a native SQL query with a
+        template-tag 'Dept' of type 'dimension' whose dimension reference contains
+        field ID 100294. If that field is unmapped, the remapper must raise
+        FieldMappingError (skip mode) rather than silently passing the source ID
+        to the target instance.
+        """
+        mapper = _make_id_mapper(
+            db_mapping={3: 30},
+            # Field 100294 is deliberately NOT mapped
+            field_mapping={
+                (3, 100): 200,  # some other field that IS mapped
+            },
+        )
+        remapper = _make_remapper(mapper, mode="skip")
+
+        # Realistic template-tags payload from a native query card
+        template_tags = {
+            "Dept": {
+                "type": "dimension",
+                "name": "Dept",
+                "id": "abc-def-123",
+                "display-name": "Département",
+                "dimension": ["field", 100294, {"base-type": "type/Text"}],
+                "widget-type": "string/=",
+            },
+        }
+
+        with pytest.raises(FieldMappingError) as exc_info:
+            remapper._remap_template_tags(template_tags, source_db_id=3)
+
+        assert exc_info.value.source_id == 100294
+        # The error should indicate it came from a field reference context
+        assert exc_info.value.source_type == "field"
+
+
 class TestTier2StripLinkCardEntity:
     """Leaks 3.11, 4.2 — _remap_link_card_settings strips unmapped entity."""
 
