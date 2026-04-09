@@ -1291,3 +1291,114 @@ class TestDashboardHandlerMappingErrorCatch:
         # Should raise MigrationError due to strict mode
         with pytest.raises(MigrationError, match="strict"):
             handler._import_single_dashboard(dash)
+
+
+class TestEmbeddedCardStripping:
+    """Leaks 3.12, 5.1 — _remap_embedded_card strips unmapped IDs."""
+
+    @pytest.fixture
+    def handler_with_real_mapper(self, mock_config, mock_client, mock_manifest, mock_report, tmp_path):
+        """Create a DashboardHandler with a real IDMapper (not mocked).
+
+        Uses _make_id_mapper-like setup so we can control exactly which IDs
+        are mapped and which are unmapped.
+        """
+        from lib.models import DatabaseMap, ManifestMeta
+        from lib.models_core import UnmappedIDCollector
+        from lib.remapping.id_mapper import IDMapper
+
+        mock_config.unmapped_ids = "skip"
+
+        # Create a real IDMapper with db 1 -> 10 mapped, but NO card/db mappings
+        # for the IDs we want to test as unmapped
+        manifest = mock_manifest
+        manifest.meta = ManifestMeta(
+            source_url="https://source.example.com",
+            export_timestamp="2025-01-01T00:00:00",
+            tool_version="1.0.0",
+            cli_args={},
+        )
+
+        db_map = DatabaseMap(by_id={"1": 10})
+        mapper = IDMapper(manifest, db_map)
+
+        # Create a real QueryRemapper
+        remapper = QueryRemapper(mapper, unmapped_ids_mode="skip")
+
+        context = ImportContext(
+            config=mock_config,
+            client=mock_client,
+            manifest=manifest,
+            export_dir=tmp_path,
+            id_mapper=mapper,
+            query_remapper=remapper,
+            report=mock_report,
+            target_collections=[],
+            unmapped_id_collector=UnmappedIDCollector(),
+        )
+
+        return DashboardHandler(context), context
+
+    def test_remap_embedded_card_id_stripped(self, handler_with_real_mapper):
+        """Leak 3.12: unmapped embedded card.id is set to None + collector event."""
+        handler, context = handler_with_real_mapper
+        # Card ID 999 is NOT mapped — should be stripped
+        card = {"id": 999, "name": "Unmapped Card"}
+        dash = Dashboard(
+            id=50,
+            name="Parent Dashboard",
+            file_path="test.json",
+            collection_id=10,
+            archived=False,
+        )
+
+        result = handler._remap_embedded_card(card, source_db_id=1, dash=dash)
+
+        assert result is not None
+        assert result["id"] is None, "Unmapped embedded card.id should be set to None"
+
+        # Verify collector recorded the event
+        collector = context.unmapped_id_collector
+        assert collector.has_events
+        stripped_events = [e for e in collector.events if e.action == "stripped"]
+        assert len(stripped_events) >= 1
+        event = stripped_events[0]
+        assert event.id_type == "card"
+        assert event.source_id == 999
+        assert event.entity_source_id == 50
+        assert event.entity_name == "Parent Dashboard"
+        assert "embedded" in event.location.lower() or "card.id" in event.location.lower()
+
+    def test_remap_embedded_card_db_id_stripped(self, handler_with_real_mapper):
+        """Leak 5.1: unmapped embedded card.database_id is set to None + collector event."""
+        handler, context = handler_with_real_mapper
+        # database_id 777 is NOT mapped — should be stripped
+        card = {"id": 1, "database_id": 777, "name": "Card with bad DB"}
+        # Map card ID 1 so we don't also trigger leak 3.12
+        handler.id_mapper.set_card_mapping(1, 100)
+        dash = Dashboard(
+            id=60,
+            name="DB Dashboard",
+            file_path="test2.json",
+            collection_id=10,
+            archived=False,
+        )
+
+        result = handler._remap_embedded_card(card, source_db_id=None, dash=dash)
+
+        assert result is not None
+        assert result["database_id"] is None, (
+            "Unmapped embedded card.database_id should be set to None"
+        )
+
+        # Verify collector recorded the event
+        collector = context.unmapped_id_collector
+        assert collector.has_events
+        stripped_events = [e for e in collector.events if e.action == "stripped"]
+        assert len(stripped_events) >= 1
+        event = stripped_events[0]
+        assert event.id_type == "database"
+        assert event.source_id == 777
+        assert event.entity_source_id == 60
+        assert event.entity_name == "DB Dashboard"
+        assert "database_id" in event.location.lower()

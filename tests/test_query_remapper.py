@@ -1,8 +1,11 @@
-"""Tests for QueryRemapper unmapped-ID handling (Phase 2 Tier 1).
+"""Tests for QueryRemapper unmapped-ID handling.
 
-Verifies that unmapped IDs raise the correct MappingError subclass
+Phase 2 (Tier 1): Verifies that unmapped IDs raise the correct MappingError subclass
 instead of silently leaking source IDs to the target instance.
 Force mode (--unmapped-ids=force) must preserve the original ID without raising.
+
+Phase 3 (Tier 2): Verifies that advisory/metadata structures strip unmapped IDs
+(set to None or remove the containing structure) and record RemapWarnings.
 """
 
 import pytest
@@ -326,3 +329,202 @@ class TestForceModeKeeps:
 
         # Original card reference preserved
         assert container[SOURCE_TABLE_KEY] == f"{CARD_REF_PREFIX}123"
+
+
+# ===========================================================================
+# 5. Tier 2 — Strip advisory IDs (Phase 3)
+# ===========================================================================
+
+
+class TestTier2StripResultMetadata:
+    """Leaks 1.3, 1.4, 2.4 — _remap_result_metadata strips unmapped IDs."""
+
+    def test_remap_result_metadata_field_id_stripped(self) -> None:
+        """Leak 1.3: unmapped field ID in result_metadata[].id is removed + warning."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No field mapping for (1, 500) — unmapped
+        remapper = _make_remapper(mapper, mode="skip")
+
+        metadata = [
+            {"name": "col1", "id": 500, "base_type": "type/Integer"},
+        ]
+
+        result = remapper._remap_result_metadata(metadata, source_db_id=1)
+
+        # The "id" key must be stripped (removed entirely)
+        assert "id" not in result[0], "Unmapped field ID should be stripped from result_metadata"
+        # A RemapWarning should be recorded
+        assert len(remapper._current_warnings) == 1
+        w = remapper._current_warnings[0]
+        assert w.id_type == "field"
+        assert w.source_id == 500
+        assert "result_metadata" in w.location
+
+    def test_remap_result_metadata_field_ref_stripped(self) -> None:
+        """Leak 1.4: unmapped field ref in result_metadata[].field_ref is removed + warning."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No field mapping for (1, 600) — will cause FieldMappingError in remap_field_ids_recursively
+        remapper = _make_remapper(mapper, mode="skip")
+
+        metadata = [
+            {
+                "name": "col1",
+                "field_ref": ["field", 600, {"base-type": "type/Text"}],
+            },
+        ]
+
+        result = remapper._remap_result_metadata(metadata, source_db_id=1)
+
+        # The "field_ref" key must be stripped
+        assert "field_ref" not in result[0], (
+            "Unmapped field_ref should be stripped from result_metadata"
+        )
+        # A RemapWarning should be recorded
+        assert len(remapper._current_warnings) >= 1
+        w = remapper._current_warnings[0]
+        assert w.id_type == "field"
+        assert "result_metadata" in w.location
+
+    def test_remap_result_metadata_table_id_stripped(self) -> None:
+        """Leak 2.4: unmapped table_id in result_metadata[].table_id is removed + warning."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No table mapping for (1, 700) — unmapped
+        remapper = _make_remapper(mapper, mode="skip")
+
+        metadata = [
+            {"name": "col1", "table_id": 700},
+        ]
+
+        result = remapper._remap_result_metadata(metadata, source_db_id=1)
+
+        # The "table_id" key must be stripped
+        assert "table_id" not in result[0], (
+            "Unmapped table_id should be stripped from result_metadata"
+        )
+        # A RemapWarning should be recorded
+        assert len(remapper._current_warnings) == 1
+        w = remapper._current_warnings[0]
+        assert w.id_type == "table"
+        assert w.source_id == 700
+        assert "result_metadata" in w.location
+
+
+class TestTier2StripClickBehavior:
+    """Leaks 3.8, 4.1 — _remap_click_behavior strips unmapped targetId."""
+
+    def test_remap_click_behavior_question_stripped(self) -> None:
+        """Leak 3.8: unmapped card targetId is removed, type set to 'none'."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No card mapping for 42
+        remapper = _make_remapper(mapper, mode="skip")
+
+        click_behavior = {
+            "type": "link",
+            "linkType": "question",
+            "targetId": 42,
+        }
+
+        result = remapper._remap_click_behavior(click_behavior)
+
+        assert "targetId" not in result, "Unmapped card targetId should be stripped"
+        assert result["type"] == "none", "Type should be set to 'none' when targetId is stripped"
+        assert len(remapper._current_warnings) == 1
+        w = remapper._current_warnings[0]
+        assert w.id_type == "card"
+        assert w.source_id == 42
+
+    def test_remap_click_behavior_dashboard_stripped(self) -> None:
+        """Leak 4.1: unmapped dashboard targetId is removed, type set to 'none'."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No dashboard mapping for 99
+        remapper = _make_remapper(mapper, mode="skip")
+
+        click_behavior = {
+            "type": "link",
+            "linkType": "dashboard",
+            "targetId": 99,
+        }
+
+        result = remapper._remap_click_behavior(click_behavior)
+
+        assert "targetId" not in result, "Unmapped dashboard targetId should be stripped"
+        assert result["type"] == "none", "Type should be set to 'none' when targetId is stripped"
+        assert len(remapper._current_warnings) == 1
+        w = remapper._current_warnings[0]
+        assert w.id_type == "dashboard"
+        assert w.source_id == 99
+
+
+class TestTier2StripVisualizerRefs:
+    """Leaks 3.9, 3.10 — Visualizer sourceId and data source name ref."""
+
+    def test_remap_visualizer_source_id_stripped(self) -> None:
+        """Leak 3.9: unmapped card in sourceId 'card:123' is set to None + warning."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No card mapping for 123
+        remapper = _make_remapper(mapper, mode="skip")
+
+        item = {"sourceId": "card:123", "name": "col1", "originalName": "col1"}
+
+        result = remapper._remap_visualizer_source_id(item)
+
+        assert result["sourceId"] is None, "Unmapped Visualizer sourceId should be set to None"
+        assert len(remapper._current_warnings) == 1
+        w = remapper._current_warnings[0]
+        assert w.id_type == "card"
+        assert w.source_id == 123
+        assert "sourceId" in w.location or "visualizer" in w.location.lower()
+
+    def test_remap_data_source_name_ref_stripped(self) -> None:
+        """Leak 3.10: unmapped card in $_card:123_name returns None + warning."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No card mapping for 123
+        remapper = _make_remapper(mapper, mode="skip")
+
+        result = remapper._remap_data_source_name_ref("$_card:123_name")
+
+        assert result is None, "Unmapped data source name ref should return None"
+        assert len(remapper._current_warnings) == 1
+        w = remapper._current_warnings[0]
+        assert w.id_type == "card"
+        assert w.source_id == 123
+
+
+class TestTier2StripLinkCardEntity:
+    """Leaks 3.11, 4.2 — _remap_link_card_settings strips unmapped entity."""
+
+    def test_remap_link_card_entity_stripped(self) -> None:
+        """Leak 3.11: unmapped card entity.id removes the entity dict + warning."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No card mapping for 88
+        remapper = _make_remapper(mapper, mode="skip")
+
+        link = {
+            "entity": {"id": 88, "model": "card", "name": "Some Card"},
+        }
+
+        result = remapper._remap_link_card_settings(link)
+
+        assert "entity" not in result, "Unmapped card entity should be removed"
+        assert len(remapper._current_warnings) == 1
+        w = remapper._current_warnings[0]
+        assert w.id_type == "card"
+        assert w.source_id == 88
+
+    def test_remap_link_dashboard_entity_stripped(self) -> None:
+        """Leak 4.2: unmapped dashboard entity.id removes the entity dict + warning."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No dashboard mapping for 77
+        remapper = _make_remapper(mapper, mode="skip")
+
+        link = {
+            "entity": {"id": 77, "model": "dashboard", "name": "Some Dashboard"},
+        }
+
+        result = remapper._remap_link_card_settings(link)
+
+        assert "entity" not in result, "Unmapped dashboard entity should be removed"
+        assert len(remapper._current_warnings) == 1
+        w = remapper._current_warnings[0]
+        assert w.id_type == "dashboard"
+        assert w.source_id == 77
