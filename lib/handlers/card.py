@@ -88,7 +88,7 @@ class CardHandler(BaseHandler):
             source_db_id = card_data.get("database_id") or card_data.get("dataset_query", {}).get(
                 "database"
             )
-            if source_db_id and "result_metadata" in card_data:
+            if source_db_id and card_data.get("result_metadata") is not None:
                 self.id_mapper.register_result_metadata_fields(
                     source_db_id, card_data["result_metadata"]
                 )

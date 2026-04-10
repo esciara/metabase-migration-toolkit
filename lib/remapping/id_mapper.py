@@ -109,7 +109,7 @@ class IDMapper:
         self._group_map[source_id] = target_id
 
     def register_result_metadata_fields(
-        self, source_db_id: int, result_metadata: list[dict[str, Any]]
+        self, source_db_id: int, result_metadata: list[dict[str, Any]] | None
     ) -> None:
         """Register supplementary field metadata from a card's result_metadata.
 
@@ -121,6 +121,8 @@ class IDMapper:
             source_db_id: The source database ID the card belongs to.
             result_metadata: The card's ``result_metadata`` array.
         """
+        if not result_metadata:
+            return
         for item in result_metadata:
             field_id = item.get("id")
             field_name = item.get("name")
