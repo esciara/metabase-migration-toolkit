@@ -306,6 +306,84 @@ class TestExtractCardDependencies:
         deps = CardHandler._extract_card_dependencies(card_data)
         assert deps == set()
 
+    def test_extract_parameter_card_dependencies(self):
+        """Test that card IDs in parameters values_source_config are extracted."""
+        card_data = {
+            "dataset_query": {
+                "type": "native",
+                "database": 1,
+                "native": {"query": "SELECT 1"},
+            },
+            "parameters": [
+                {
+                    "id": "abc-123",
+                    "name": "Category",
+                    "type": "category",
+                    "values_source_type": "card",
+                    "values_source_config": {"card_id": 500},
+                },
+                {
+                    "id": "def-456",
+                    "name": "Date",
+                    "type": "date/single",
+                },
+                {
+                    "id": "ghi-789",
+                    "name": "Location",
+                    "type": "category",
+                    "values_source_type": "card",
+                    "values_source_config": {"card_id": 600},
+                },
+            ],
+        }
+        deps = CardHandler._extract_card_dependencies(card_data)
+        assert 500 in deps
+        assert 600 in deps
+
+    def test_extract_parameter_card_dependencies_empty_parameters(self):
+        """Test that empty or missing parameters don't cause errors."""
+        card_data = {
+            "dataset_query": {
+                "type": "native",
+                "database": 1,
+                "native": {"query": "SELECT 1"},
+            },
+        }
+        deps = CardHandler._extract_card_dependencies(card_data)
+        assert deps == set()
+
+        card_data["parameters"] = []
+        deps = CardHandler._extract_card_dependencies(card_data)
+        assert deps == set()
+
+    def test_extract_dependencies_null_parameters_no_crash(self):
+        """Test that parameters: null doesn't crash dependency extraction."""
+        card_data = {
+            "dataset_query": {
+                "type": "native",
+                "database": 1,
+                "native": {"query": "SELECT 1"},
+            },
+            "parameters": None,
+        }
+        deps = CardHandler._extract_card_dependencies(card_data)
+        assert deps == set()
+
+    def test_extract_dependencies_null_aggregation_no_crash(self):
+        """Test that aggregation: null doesn't crash dependency extraction."""
+        card_data = {
+            "dataset_query": {
+                "type": "query",
+                "database": 1,
+                "query": {
+                    "source-table": 10,
+                    "aggregation": None,
+                },
+            },
+        }
+        deps = CardHandler._extract_card_dependencies(card_data)
+        assert deps == set()
+
 
 class TestFindExistingCard:
     """Tests for finding existing cards via ImportContext."""

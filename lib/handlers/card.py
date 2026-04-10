@@ -94,7 +94,9 @@ class CardHandler(BaseHandler):
                 )
 
             # Remap database and card references
-            card_data, remapped = self.query_remapper.remap_card_data(card_data)
+            card_data, remapped = self.query_remapper.remap_card_data(
+                card_data, manifest_cards=self.context.manifest.cards
+            )
             if not remapped:
                 raise ValueError("Card does not have a database reference.")
 
@@ -448,6 +450,15 @@ class CardHandler(BaseHandler):
                 template_tags = native.get(TEMPLATE_TAGS_KEY, {})
                 CardHandler._extract_template_tag_deps(template_tags, dependencies)
 
+        # Extract card IDs from parameters with values_source_config
+        for param in card_data.get("parameters") or []:
+            if isinstance(param, dict):
+                source_config = param.get("values_source_config")
+                if isinstance(source_config, dict):
+                    card_id = source_config.get("card_id")
+                    if isinstance(card_id, int):
+                        dependencies.add(card_id)
+
         return dependencies
 
     @staticmethod
@@ -490,7 +501,7 @@ class CardHandler(BaseHandler):
         # Check aggregation clauses for v57 MBQL metric references:
         # ["metric", {"lib/uuid": "...", ...}, <card_id>]
         # Saved metrics are stored as cards of type "metric" and referenced by ID.
-        for agg in query.get("aggregation", []):
+        for agg in query.get("aggregation") or []:
             extract_metric_deps_from_clause(agg, dependencies)
 
     @staticmethod

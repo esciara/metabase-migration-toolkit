@@ -829,3 +829,352 @@ class TestTier2StripLinkCardEntity:
         w = remapper._current_warnings[0]
         assert w.id_type == "dashboard"
         assert w.source_id == 77
+
+
+# ===========================================================================
+# 7. Card parameter values_source_config.card_id remapping
+# ===========================================================================
+
+
+class TestCardParameterRemapping:
+    """Verify that remap_card_data() remaps card_id in parameter values_source_config."""
+
+    def test_remap_card_data_remaps_parameter_card_id(self):
+        """Card parameter values_source_config.card_id should be remapped."""
+        mapper = _make_id_mapper(
+            db_mapping={1: 10},
+            card_mapping={100: 200},
+        )
+        remapper = _make_remapper(mapper)
+
+        manifest_cards = [
+            type("Card", (), {"id": 100, "database_id": 1})(),
+        ]
+
+        card_data = {
+            "database_id": 1,
+            "dataset_query": {"database": 1, "type": "native", "native": {"query": "SELECT 1"}},
+            "parameters": [
+                {
+                    "id": "abc-123",
+                    "name": "Category",
+                    "type": "category",
+                    "values_source_type": "card",
+                    "values_source_config": {
+                        "card_id": 100,
+                        "value_field": ["field", "name", {"base-type": "type/Text"}],
+                    },
+                },
+                {
+                    "id": "def-456",
+                    "name": "Date",
+                    "type": "date/single",
+                },
+            ],
+        }
+
+        result, success = remapper.remap_card_data(card_data, manifest_cards=manifest_cards)
+
+        assert success
+        params = result["parameters"]
+        assert len(params) == 2
+
+        # The first parameter should have its card_id remapped
+        assert params[0]["values_source_config"]["card_id"] == 200
+        assert params[0]["values_source_type"] == "card"
+
+        # The second parameter (no values_source_config) should be unchanged
+        assert "values_source_config" not in params[1]
+
+    def test_remap_card_data_strips_missing_parameter_card(self):
+        """Missing card mapping should strip values_source_config gracefully."""
+        mapper = _make_id_mapper(
+            db_mapping={1: 10},
+            # No card mapping for card_id 999
+        )
+        remapper = _make_remapper(mapper)
+
+        manifest_cards = [
+            type("Card", (), {"id": 999, "database_id": 1})(),
+        ]
+
+        card_data = {
+            "database_id": 1,
+            "dataset_query": {"database": 1, "type": "native", "native": {"query": "SELECT 1"}},
+            "parameters": [
+                {
+                    "id": "abc-123",
+                    "name": "Category",
+                    "type": "category",
+                    "values_source_type": "card",
+                    "values_source_config": {
+                        "card_id": 999,
+                        "value_field": ["field", "name", {"base-type": "type/Text"}],
+                    },
+                },
+            ],
+        }
+
+        result, success = remapper.remap_card_data(card_data, manifest_cards=manifest_cards)
+
+        assert success
+        params = result["parameters"]
+        assert len(params) == 1
+        # values_source_config and values_source_type should be stripped
+        assert "values_source_config" not in params[0]
+        assert "values_source_type" not in params[0]
+
+    def test_remap_card_data_skips_parameters_without_manifest_cards(self):
+        """When manifest_cards is None, parameters should not be remapped (backward compat)."""
+        mapper = _make_id_mapper(
+            db_mapping={1: 10},
+            card_mapping={100: 200},
+        )
+        remapper = _make_remapper(mapper)
+
+        card_data = {
+            "database_id": 1,
+            "dataset_query": {"database": 1, "type": "native", "native": {"query": "SELECT 1"}},
+            "parameters": [
+                {
+                    "id": "abc-123",
+                    "name": "Category",
+                    "type": "category",
+                    "values_source_type": "card",
+                    "values_source_config": {"card_id": 100},
+                },
+            ],
+        }
+
+        # No manifest_cards passed → parameters left untouched
+        result, success = remapper.remap_card_data(card_data)
+
+        assert success
+        params = result["parameters"]
+        assert params[0]["values_source_config"]["card_id"] == 100  # NOT remapped
+
+    def test_remap_card_data_null_parameters_no_crash(self) -> None:
+        """Card with parameters: null should not crash."""
+        mapper = _make_id_mapper(
+            db_mapping={1: 10},
+            card_mapping={100: 200},
+        )
+        remapper = _make_remapper(mapper)
+
+        card_data = {
+            "database_id": 1,
+            "dataset_query": {"database": 1, "type": "native", "native": {"query": "SELECT 1"}},
+            "parameters": None,
+        }
+
+        result, success = remapper.remap_card_data(
+            card_data,
+            manifest_cards=[{"id": 100, "database_id": 1}],
+        )
+        assert success
+        assert result["parameters"] is None
+
+
+# ===========================================================================
+# Schema Rename Tests
+# ===========================================================================
+
+
+class TestSchemaRename:
+    """Tests for _apply_schema_renames and schema rename integration."""
+
+    def _make_remapper_with_schema_rename(
+        self,
+        schema_rename: dict[str, str] | None = None,
+        db_mapping: dict[int, int] | None = None,
+        card_mapping: dict[int, int] | None = None,
+    ) -> QueryRemapper:
+        """Build a QueryRemapper with schema_rename support."""
+        mapper = _make_id_mapper(
+            db_mapping=db_mapping or {1: 10},
+            card_mapping=card_mapping,
+        )
+        return QueryRemapper(
+            mapper,
+            unmapped_ids_mode="skip",
+            schema_rename=schema_rename,
+        )
+
+    # --- Unit tests for _apply_schema_renames ---
+
+    def test_apply_schema_renames_simple(self) -> None:
+        """FROM analytics_prod.events -> FROM analytics_stg.events."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = "SELECT * FROM analytics_prod.events"
+        result = remapper._apply_schema_renames(sql)
+        assert result == "SELECT * FROM analytics_stg.events"
+
+    def test_apply_schema_renames_with_project(self) -> None:
+        """my_project.analytics_prod.events -> my_project.analytics_stg.events."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = "SELECT * FROM my_project.analytics_prod.events"
+        result = remapper._apply_schema_renames(sql)
+        assert result == "SELECT * FROM my_project.analytics_stg.events"
+
+    def test_apply_schema_renames_backtick_project(self) -> None:
+        """`my-proj`.analytics_prod.events -> `my-proj`.analytics_stg.events."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = "SELECT * FROM `my-proj`.analytics_prod.events"
+        result = remapper._apply_schema_renames(sql)
+        assert result == "SELECT * FROM `my-proj`.analytics_stg.events"
+
+    def test_apply_schema_renames_backtick_full_path(self) -> None:
+        """`my-proj.analytics_prod.events` -> `my-proj.analytics_stg.events`."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = "SELECT * FROM `my-proj.analytics_prod.events`"
+        result = remapper._apply_schema_renames(sql)
+        assert result == "SELECT * FROM `my-proj.analytics_stg.events`"
+
+    def test_apply_schema_renames_backtick_dataset_table(self) -> None:
+        """`analytics_prod.events` -> `analytics_stg.events`."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = "SELECT * FROM `analytics_prod.events`"
+        result = remapper._apply_schema_renames(sql)
+        assert result == "SELECT * FROM `analytics_stg.events`"
+
+    def test_apply_schema_renames_multiple_occurrences(self) -> None:
+        """Multiple refs to same schema in one query."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = (
+            "SELECT a.id FROM analytics_prod.events a " "JOIN analytics_prod.users b ON a.id = b.id"
+        )
+        result = remapper._apply_schema_renames(sql)
+        assert result == (
+            "SELECT a.id FROM analytics_stg.events a " "JOIN analytics_stg.users b ON a.id = b.id"
+        )
+
+    def test_apply_schema_renames_multiple_schemas(self) -> None:
+        """Two different rename pairs in same SQL."""
+        remapper = self._make_remapper_with_schema_rename(
+            {"analytics_prod": "analytics_stg", "raw_prod": "raw_stg"}
+        )
+        sql = (
+            "SELECT * FROM analytics_prod.events "
+            "JOIN raw_prod.imports ON events.id = imports.event_id"
+        )
+        result = remapper._apply_schema_renames(sql)
+        assert result == (
+            "SELECT * FROM analytics_stg.events "
+            "JOIN raw_stg.imports ON events.id = imports.event_id"
+        )
+
+    def test_apply_schema_renames_no_false_positive_substring(self) -> None:
+        """some_analytics_prod.events is NOT changed (wrong left-context)."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = "SELECT * FROM some_analytics_prod.events"
+        result = remapper._apply_schema_renames(sql)
+        assert result == "SELECT * FROM some_analytics_prod.events"
+
+    def test_apply_schema_renames_no_false_positive_no_dot(self) -> None:
+        """WHERE x = 'analytics_prod' is NOT changed (no dot after)."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = "SELECT * FROM t WHERE x = 'analytics_prod'"
+        result = remapper._apply_schema_renames(sql)
+        assert result == "SELECT * FROM t WHERE x = 'analytics_prod'"
+
+    def test_apply_schema_renames_in_paren(self) -> None:
+        """(analytics_prod.events) -> (analytics_stg.events)."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = "SELECT * FROM (SELECT id FROM analytics_prod.events)"
+        result = remapper._apply_schema_renames(sql)
+        assert result == "SELECT * FROM (SELECT id FROM analytics_stg.events)"
+
+    def test_apply_schema_renames_none_is_noop(self) -> None:
+        """No schema_rename -> SQL unchanged."""
+        remapper = self._make_remapper_with_schema_rename(schema_rename=None)
+        sql = "SELECT * FROM analytics_prod.events"
+        result = remapper._apply_schema_renames(sql)
+        assert result == sql
+
+    def test_apply_schema_renames_case_sensitive(self) -> None:
+        """Analytics_Prod.events not changed when rename is for analytics_prod."""
+        remapper = self._make_remapper_with_schema_rename({"analytics_prod": "analytics_stg"})
+        sql = "SELECT * FROM Analytics_Prod.events"
+        result = remapper._apply_schema_renames(sql)
+        assert result == "SELECT * FROM Analytics_Prod.events"
+
+    # --- Integration tests: full remap_card_data flow ---
+
+    def test_schema_rename_in_native_v56(self) -> None:
+        """Full card data with v56 native query, schema renamed."""
+        remapper = self._make_remapper_with_schema_rename(
+            schema_rename={"analytics_prod": "analytics_stg"},
+        )
+        card_data = {
+            "database_id": 1,
+            "dataset_query": {
+                "database": 1,
+                "type": "native",
+                "native": {
+                    "query": "SELECT * FROM analytics_prod.events",
+                    "template-tags": {},
+                },
+            },
+        }
+        result, success = remapper.remap_card_data(card_data)
+        assert success
+        assert result["dataset_query"]["native"]["query"] == "SELECT * FROM analytics_stg.events"
+
+    def test_schema_rename_in_native_v57(self) -> None:
+        """Full card data with v57 native query, schema renamed."""
+        remapper = self._make_remapper_with_schema_rename(
+            schema_rename={"analytics_prod": "analytics_stg"},
+        )
+        card_data = {
+            "database_id": 1,
+            "dataset_query": {
+                "database": 1,
+                "lib/type": "mbql/query",
+                "stages": [
+                    {
+                        "lib/type": "mbql.stage/native",
+                        "native": "SELECT * FROM analytics_prod.events",
+                        "template-tags": {},
+                    }
+                ],
+            },
+        }
+        result, success = remapper.remap_card_data(card_data)
+        assert success
+        assert (
+            result["dataset_query"]["stages"][0]["native"] == "SELECT * FROM analytics_stg.events"
+        )
+
+    def test_schema_rename_combined_with_card_refs(self) -> None:
+        """Both {{#card}} and schema renames in same v56 query."""
+        remapper = self._make_remapper_with_schema_rename(
+            schema_rename={"analytics_prod": "analytics_stg"},
+            card_mapping={100: 200},
+        )
+        card_data = {
+            "database_id": 1,
+            "dataset_query": {
+                "database": 1,
+                "type": "native",
+                "native": {
+                    "query": (
+                        "SELECT * FROM analytics_prod.events "
+                        "JOIN {{#100-my-model}} ON e.id = m.id"
+                    ),
+                    "template-tags": {
+                        "100-my-model": {
+                            "type": "card",
+                            "card-id": 100,
+                            "name": "100-my-model",
+                            "display-name": "My Model",
+                        }
+                    },
+                },
+            },
+        }
+        result, success = remapper.remap_card_data(card_data)
+        assert success
+        result_query = result["dataset_query"]["native"]["query"]
+        assert "analytics_stg.events" in result_query
+        assert "{{#200-my-model}}" in result_query
+        assert "analytics_prod" not in result_query

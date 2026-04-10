@@ -78,7 +78,9 @@ class QueryRemapper:
         """
         self._current_warnings.append(RemapWarning(id_type, source_id, source_db_id, location))
 
-    def remap_card_data(self, card_data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    def remap_card_data(
+        self, card_data: dict[str, Any], manifest_cards: list[Any] | None = None
+    ) -> tuple[dict[str, Any], bool]:
         """Remaps database, table, field, and card IDs in card data.
 
         Handles both MBQL and native SQL queries, including:
@@ -88,9 +90,13 @@ class QueryRemapper:
         - Card references in MBQL (card__123 format)
         - Card references in native SQL ({{#123-model-name}} format)
         - Template tags with card-id remapping
+        - Parameter values_source_config.card_id remapping (when manifest_cards provided)
 
         Args:
             card_data: The original card data dictionary.
+            manifest_cards: Optional list of cards from the manifest for database ID
+                lookup during parameter remapping. When None, parameter remapping is
+                skipped (backward-compatible).
 
         Returns:
             A tuple of (remapped_data, success). Success is False if the
@@ -143,6 +149,10 @@ class QueryRemapper:
             data["visualization_settings"] = self.remap_field_ids_recursively(
                 data["visualization_settings"], source_db_id
             )
+
+        # Remap parameters (values_source_config.card_id)
+        if data.get("parameters") and manifest_cards is not None:
+            data["parameters"] = self.remap_dashboard_parameters(data["parameters"], manifest_cards)
 
         return data, True
 
