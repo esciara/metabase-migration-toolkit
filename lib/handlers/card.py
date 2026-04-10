@@ -84,6 +84,15 @@ class CardHandler(BaseHandler):
                 self._add_report_item("card", "failed", card.id, None, card.name, error_msg)
                 return
 
+            # Register supplementary field metadata from result_metadata (for better error messages)
+            source_db_id = card_data.get("database_id") or card_data.get("dataset_query", {}).get(
+                "database"
+            )
+            if source_db_id and "result_metadata" in card_data:
+                self.id_mapper.register_result_metadata_fields(
+                    source_db_id, card_data["result_metadata"]
+                )
+
             # Remap database and card references
             card_data, remapped = self.query_remapper.remap_card_data(card_data)
             if not remapped:

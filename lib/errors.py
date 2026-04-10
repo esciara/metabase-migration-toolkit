@@ -110,6 +110,7 @@ class FieldMappingError(MappingError):
         source_db_name: str | None = None,
         location: str | None = None,
         details: dict[str, Any] | None = None,
+        from_supplementary: bool = False,
     ) -> None:
         """Initialize field mapping error with field and database information."""
         self.source_db_id = source_db_id
@@ -118,10 +119,17 @@ class FieldMappingError(MappingError):
         self.table_id = table_id
         self.schema_name = schema_name
         self.source_db_name = source_db_name
+        self.from_supplementary = from_supplementary
         if field_name:
-            field_part = f"field '{field_name}' (ID: {source_field_id})"
+            if from_supplementary:
+                field_part = (
+                    f"field '{field_name}' "
+                    f"(ID: {source_field_id}, possibly hidden or disabled field)"
+                )
+            else:
+                field_part = f"field '{field_name}' (ID: {source_field_id})"
         else:
-            field_part = f"field ID {source_field_id}"
+            field_part = f"field ID {source_field_id} (not found in database metadata)"
         if table_name:
             table_id_suffix = f" (ID: {table_id})" if table_id else ""
             table_part = f" in table '{table_name}'{table_id_suffix}"

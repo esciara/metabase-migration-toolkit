@@ -217,6 +217,47 @@ class TestFieldMappingError:
         )
         assert error.details == {"type": "timestamp"}
 
+    def test_from_supplementary_hint(self):
+        """Test that from_supplementary=True adds a 'possibly hidden' hint."""
+        error = FieldMappingError(
+            source_field_id=100835,
+            source_db_id=2,
+            field_name="venue_is_virtual",
+            table_name="global_collective_offer",
+            table_id=4632,
+            source_db_name="Analytics",
+            from_supplementary=True,
+        )
+        msg = str(error)
+        assert "possibly hidden or disabled field" in msg
+        assert "field 'venue_is_virtual'" in msg
+        assert "table 'global_collective_offer' (ID: 4632)" in msg
+        assert "database 'Analytics' (ID: 2)" in msg
+
+    def test_no_field_name_hint(self):
+        """Test that missing field_name adds 'not found in database metadata' hint."""
+        error = FieldMappingError(
+            source_field_id=89,
+            source_db_id=2,
+            source_db_name="Analytics",
+        )
+        msg = str(error)
+        assert "not found in database metadata" in msg
+        assert "field ID 89" in msg
+
+    def test_from_supplementary_false_with_field_name_no_hint(self):
+        """Test that from_supplementary=False with field_name has no extra hints."""
+        error = FieldMappingError(
+            source_field_id=500,
+            source_db_id=1,
+            field_name="email",
+            from_supplementary=False,
+        )
+        msg = str(error)
+        assert "possibly hidden or disabled field" not in msg
+        assert "not found in database metadata" not in msg
+        assert "field 'email' (ID: 500)" in msg
+
 
 class TestCardMappingError:
     """Tests for the CardMappingError class."""

@@ -19,6 +19,7 @@ class SourceFieldMeta(TypedDict):
     table_name: str
     table_id: int
     schema: str | None
+    from_supplementary: bool
 
 
 class IDMapper:
@@ -50,6 +51,9 @@ class IDMapper:
         # Table and field mappings: (source_db_id, source_id) -> target_id
         self._table_map: dict[tuple[int, int], int] = {}
         self._field_map: dict[tuple[int, int], int] = {}
+
+        # Supplementary field metadata from card result_metadata (fallback for hidden fields)
+        self._supplementary_field_meta: dict[tuple[int, int], SourceFieldMeta] = {}
 
         # Cache of target database metadata
         self._target_db_metadata: dict[int, dict[str, Any]] = {}
@@ -103,6 +107,48 @@ class IDMapper:
     def set_group_mapping(self, source_id: int, target_id: int) -> None:
         """Sets a permission group ID mapping."""
         self._group_map[source_id] = target_id
+
+    def register_result_metadata_fields(
+        self, source_db_id: int, result_metadata: list[dict[str, Any]]
+    ) -> None:
+        """Register supplementary field metadata from a card's result_metadata.
+
+        This populates a fallback cache used when the manifest database metadata
+        doesn't contain the field (e.g. hidden or disabled fields excluded by
+        the Metabase metadata API).
+
+        Args:
+            source_db_id: The source database ID the card belongs to.
+            result_metadata: The card's ``result_metadata`` array.
+        """
+        for item in result_metadata:
+            field_id = item.get("id")
+            field_name = item.get("name")
+            table_id = item.get("table_id")
+            if field_id is None or field_name is None or table_id is None:
+                continue
+            key = (source_db_id, field_id)
+            if key in self._supplementary_field_meta:
+                continue  # already registered
+
+            # Look up table name and schema from manifest metadata
+            table_name: str | None = None
+            schema: str | None = None
+            for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get(
+                "tables", []
+            ):
+                if table_meta["id"] == table_id:
+                    table_name = table_meta["name"]
+                    schema = table_meta.get("schema")
+                    break
+
+            self._supplementary_field_meta[key] = {
+                "field_name": field_name,
+                "table_name": table_name or f"table_id={table_id}",
+                "table_id": table_id,
+                "schema": schema,
+                "from_supplementary": True,
+            }
 
     # --- Database ID resolution ---
 
@@ -360,13 +406,16 @@ class IDMapper:
     ) -> SourceFieldMeta | None:
         """Get structured metadata for a source field ID.
 
+        First searches the manifest database metadata, then falls back to the
+        supplementary cache populated from card ``result_metadata``.
+
         Args:
             source_db_id: The source database ID.
             source_field_id: The source field ID.
 
         Returns:
             A SourceFieldMeta with keys 'field_name', 'table_name', 'table_id',
-            and 'schema', or None if not found.
+            'schema', and 'from_supplementary', or None if not found anywhere.
         """
         for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
             for field_meta in table_meta.get("fields", []):
@@ -376,11 +425,17 @@ class IDMapper:
                         "table_name": table_meta["name"],
                         "table_id": table_meta["id"],
                         "schema": table_meta.get("schema"),
+                        "from_supplementary": False,
                     }
-        return None
+
+        # Fallback: check supplementary cache from card result_metadata
+        return self._supplementary_field_meta.get((source_db_id, source_field_id))
 
     def get_source_field_context(self, source_db_id: int, source_field_id: int) -> str | None:
         """Get human-readable context for a source field ID.
+
+        Delegates to :meth:`get_source_field_meta` so it benefits from the
+        supplementary fallback cache.
 
         Args:
             source_db_id: The source database ID.
@@ -390,18 +445,19 @@ class IDMapper:
             A string like "schema 'public', table 'region_department' (ID: 42), column 'num_dep'"
             or None.
         """
-        for table_meta in self.manifest.database_metadata.get(source_db_id, {}).get("tables", []):
-            for field_meta in table_meta.get("fields", []):
-                if field_meta["id"] == source_field_id:
-                    schema = table_meta.get("schema")
-                    prefix = f"schema '{schema}', " if schema else ""
-                    table_id = table_meta.get("id")
-                    table_id_suffix = f" (ID: {table_id})" if table_id else ""
-                    return (
-                        f"{prefix}table '{table_meta['name']}'{table_id_suffix}, "
-                        f"column '{field_meta['name']}'"
-                    )
-        return None
+        meta = self.get_source_field_meta(source_db_id, source_field_id)
+        if meta is None:
+            return None
+
+        schema = meta["schema"]
+        prefix = f"schema '{schema}', " if schema else ""
+        table_id = meta["table_id"]
+        table_id_suffix = f" (ID: {table_id})" if table_id else ""
+        suffix = " [hidden/disabled]" if meta.get("from_supplementary") else ""
+        return (
+            f"{prefix}table '{meta['table_name']}'{table_id_suffix}, "
+            f"column '{meta['field_name']}'{suffix}"
+        )
 
     def get_source_table_context(self, source_db_id: int, source_table_id: int) -> str | None:
         """Get human-readable context for a source table ID.

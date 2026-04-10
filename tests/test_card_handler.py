@@ -1122,6 +1122,87 @@ class TestMetricCardConflictResolution:
         assert len(cached) == 1
         assert cached[0]["model"] == "metric"
 
+    def test_registers_result_metadata_before_remap(self, import_context, mock_client, tmp_path):
+        """Test that result_metadata is registered before remapping."""
+        card_data = {
+            "name": "Test Card",
+            "database_id": 1,
+            "dataset_query": {"query": {"source-table": 10}, "database": 1},
+            "result_metadata": [
+                {"id": 100835, "name": "venue_is_virtual", "table_id": 4632},
+            ],
+        }
+        card_file = tmp_path / "test_card.json"
+        card_file.write_text(json.dumps(card_data))
+
+        mock_client.get_collection_items.return_value = {"data": []}
+        mock_client.create_card.return_value = {"id": 1000, "name": "Test Card"}
+
+        handler = CardHandler(import_context)
+        card = Card(
+            id=1,
+            name="Test Card",
+            file_path="test_card.json",
+            collection_id=10,
+            database_id=1,
+            archived=False,
+            dataset=False,
+        )
+
+        # Track call order to verify registration happens before remap
+        call_order: list[str] = []
+        original_register = import_context.id_mapper.register_result_metadata_fields
+        original_remap = import_context.query_remapper.remap_card_data
+
+        def tracking_register(*args, **kwargs):
+            call_order.append("register")
+            return original_register(*args, **kwargs)
+
+        def tracking_remap(*args, **kwargs):
+            call_order.append("remap")
+            return original_remap(*args, **kwargs)
+
+        import_context.id_mapper.register_result_metadata_fields = tracking_register
+        import_context.query_remapper.remap_card_data = tracking_remap
+
+        handler._import_single_card(card)
+
+        # Verify register was called before remap
+        assert "register" in call_order
+        assert "remap" in call_order
+        assert call_order.index("register") < call_order.index("remap")
+
+    def test_skips_registration_when_no_result_metadata(
+        self, import_context, mock_client, tmp_path
+    ):
+        """Test that registration is skipped when result_metadata is missing."""
+        card_data = {
+            "name": "Test Card",
+            "database_id": 1,
+            "dataset_query": {"query": {"source-table": 10}, "database": 1},
+        }
+        card_file = tmp_path / "test_card.json"
+        card_file.write_text(json.dumps(card_data))
+
+        mock_client.get_collection_items.return_value = {"data": []}
+        mock_client.create_card.return_value = {"id": 1000, "name": "Test Card"}
+
+        handler = CardHandler(import_context)
+        card = Card(
+            id=1,
+            name="Test Card",
+            file_path="test_card.json",
+            collection_id=10,
+            database_id=1,
+            archived=False,
+            dataset=False,
+        )
+
+        handler._import_single_card(card)
+
+        # register_result_metadata_fields should NOT be called
+        import_context.id_mapper.register_result_metadata_fields.assert_not_called()
+
 
 class TestImportCards:
     """Tests for importing multiple cards."""

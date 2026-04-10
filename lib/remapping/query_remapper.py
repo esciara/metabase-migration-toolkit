@@ -583,6 +583,9 @@ class QueryRemapper:
                             schema_name=field_meta["schema"] if field_meta else None,
                             source_db_name=self.id_mapper.get_source_db_name(source_db_id),
                             location="v57 MBQL field reference (data[2])",
+                            from_supplementary=(
+                                field_meta.get("from_supplementary", False) if field_meta else False
+                            ),
                         )
                     logger.warning(
                         f"No field ID mapping found for v57 source field {source_field_id} "
@@ -613,6 +616,9 @@ class QueryRemapper:
                             schema_name=field_meta["schema"] if field_meta else None,
                             source_db_name=self.id_mapper.get_source_db_name(source_db_id),
                             location="v56 MBQL field reference (data[1])",
+                            from_supplementary=(
+                                field_meta.get("from_supplementary", False) if field_meta else False
+                            ),
                         )
                     logger.warning(
                         f"No field ID mapping found for source field {source_field_id} "
