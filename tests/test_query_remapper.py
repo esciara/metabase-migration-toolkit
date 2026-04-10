@@ -409,6 +409,154 @@ class TestTier2StripResultMetadata:
         assert "result_metadata" in w.location
 
 
+class TestResultMetadataKeyNormalization:
+    """Verify that kebab-case keys in result_metadata items are normalized to snake_case.
+
+    Metabase GET API returns kebab-case non-namespaced keys (e.g. 'base-type') but
+    its POST API requires snake_case (e.g. 'base_type'). Namespaced keys containing
+    '/' (e.g. 'lib/type') must be preserved as-is.
+    """
+
+    def test_kebab_keys_converted_to_snake_case(self) -> None:
+        """Non-namespaced kebab-case keys are converted to snake_case."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        remapper = _make_remapper(mapper, mode="skip")
+
+        metadata = [
+            {
+                "name": "col1",
+                "base-type": "type/Text",
+                "semantic-type": "type/Category",
+                "effective-type": "type/Text",
+                "display-name": "Column One",
+                "database-type": "STRING",
+                "visibility-type": "normal",
+                "database-partitioned": False,
+            },
+        ]
+
+        result = remapper._remap_result_metadata(metadata, source_db_id=1)
+
+        item = result[0]
+        assert "base_type" in item
+        assert "semantic_type" in item
+        assert "effective_type" in item
+        assert "display_name" in item
+        assert "database_type" in item
+        assert "visibility_type" in item
+        assert "database_partitioned" in item
+        # Original kebab-case keys must not be present
+        assert "base-type" not in item
+        assert "semantic-type" not in item
+        assert "display-name" not in item
+        # Non-hyphenated keys are unchanged
+        assert item["name"] == "col1"
+
+    def test_namespaced_keys_preserved(self) -> None:
+        """Namespaced keys containing '/' are preserved in kebab-case."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        remapper = _make_remapper(mapper, mode="skip")
+
+        metadata = [
+            {
+                "name": "col1",
+                "lib/type": "metadata/column",
+                "lib/source": "source/table-defaults",
+                "lib/deduplicated-name": "col1",
+                "lib/original-name": "col1",
+                "lib/breakout?": True,
+                "lib/source-column-alias": "col1",
+                "metabase.lib.query/transformation-added-base-type": True,
+                "base-type": "type/Text",
+            },
+        ]
+
+        result = remapper._remap_result_metadata(metadata, source_db_id=1)
+
+        item = result[0]
+        # Namespaced keys must remain exactly as-is
+        assert "lib/type" in item
+        assert item["lib/type"] == "metadata/column"
+        assert "lib/source" in item
+        assert "lib/deduplicated-name" in item
+        assert "lib/original-name" in item
+        assert "lib/breakout?" in item
+        assert "lib/source-column-alias" in item
+        assert "metabase.lib.query/transformation-added-base-type" in item
+        # Non-namespaced kebab key is still converted
+        assert "base_type" in item
+        assert "base-type" not in item
+
+    def test_normalization_enables_field_ref_remapping(self) -> None:
+        """field-ref (kebab) is normalized to field_ref so ID remapping works."""
+        mapper = _make_id_mapper(
+            db_mapping={1: 10},
+            field_mapping={(1, 500): 5000},
+        )
+        remapper = _make_remapper(mapper, mode="skip")
+
+        metadata = [
+            {
+                "name": "col1",
+                "field-ref": ["field", 500, None],
+                "base-type": "type/Integer",
+            },
+        ]
+
+        result = remapper._remap_result_metadata(metadata, source_db_id=1)
+
+        item = result[0]
+        # Key should be snake_case
+        assert "field_ref" in item
+        assert "field-ref" not in item
+        # Field ID should be remapped
+        assert item["field_ref"] == ["field", 5000, None]
+
+    def test_normalization_enables_table_id_remapping(self) -> None:
+        """table-id (kebab) is normalized to table_id so table remapping works."""
+        mapper = _make_id_mapper(
+            db_mapping={1: 10},
+            table_mapping={(1, 700): 7000},
+        )
+        remapper = _make_remapper(mapper, mode="skip")
+
+        metadata = [
+            {
+                "name": "col1",
+                "table-id": 700,
+                "base-type": "type/Text",
+            },
+        ]
+
+        result = remapper._remap_result_metadata(metadata, source_db_id=1)
+
+        item = result[0]
+        assert "table_id" in item
+        assert "table-id" not in item
+        assert item["table_id"] == 7000
+
+    def test_mixed_keys_already_snake_case_unchanged(self) -> None:
+        """Items that already use snake_case pass through without duplication."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        remapper = _make_remapper(mapper, mode="skip")
+
+        metadata = [
+            {
+                "name": "col1",
+                "base_type": "type/Text",
+                "display_name": "Column One",
+                "effective_type": "type/Text",
+            },
+        ]
+
+        result = remapper._remap_result_metadata(metadata, source_db_id=1)
+
+        item = result[0]
+        assert item["base_type"] == "type/Text"
+        assert item["display_name"] == "Column One"
+        assert len(item) == 4  # No extra keys added
+
+
 class TestTier2StripClickBehavior:
     """Leaks 3.8, 4.1 — _remap_click_behavior strips unmapped targetId."""
 

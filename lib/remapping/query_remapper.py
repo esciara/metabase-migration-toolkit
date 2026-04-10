@@ -410,6 +410,32 @@ class QueryRemapper:
             if key in query and key not in FIELD_CONTAINING_CLAUSES:
                 query[key] = self.remap_field_ids_recursively(query[key], source_db_id)
 
+    @staticmethod
+    def _normalize_metadata_keys(item: dict[str, Any]) -> dict[str, Any]:
+        """Normalize result_metadata item keys from kebab-case to snake_case.
+
+        Metabase's GET API returns result_metadata with Clojure-native kebab-case
+        keys (e.g. ``base-type``, ``display-name``), but its POST API requires
+        snake_case for non-namespaced keys (e.g. ``base_type``, ``display_name``).
+
+        Namespaced keys (containing ``/``) such as ``lib/type`` or
+        ``metabase.lib.query/transformation-added-base-type`` are preserved as-is,
+        since Metabase expects them in kebab-case.
+
+        Args:
+            item: A single result_metadata dict with potentially mixed key formats.
+
+        Returns:
+            A new dict with non-namespaced kebab-case keys converted to snake_case.
+        """
+        normalized: dict[str, Any] = {}
+        for key, value in item.items():
+            if "/" not in key and "-" in key:
+                normalized[key.replace("-", "_")] = value
+            else:
+                normalized[key] = value
+        return normalized
+
     def _remap_result_metadata(self, metadata: list[Any], source_db_id: int) -> list[Any]:
         """Remaps field and table IDs in result_metadata."""
         if not isinstance(metadata, list):
@@ -421,7 +447,10 @@ class QueryRemapper:
                 remapped_metadata.append(item)
                 continue
 
-            item_copy = item.copy()
+            # Normalize kebab-case keys to snake_case before remapping.
+            # Metabase GET returns kebab-case (e.g. "field-ref") but POST
+            # requires snake_case (e.g. "field_ref") for non-namespaced keys.
+            item_copy = self._normalize_metadata_keys(item)
 
             # Remap field_ref (Tier 2: catch FieldMappingError and strip)
             if "field_ref" in item_copy:
