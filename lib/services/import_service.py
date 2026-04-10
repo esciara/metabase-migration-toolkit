@@ -8,6 +8,7 @@ from typing import Any
 from lib.client import MetabaseAPIError, MetabaseClient
 from lib.config import ImportConfig
 from lib.constants import MetabaseVersion
+from lib.errors import MigrationError
 from lib.handlers import (
     CardHandler,
     CollectionHandler,
@@ -127,16 +128,86 @@ class ImportService:
         self.db_map = DatabaseMap(
             by_id=db_map_data.get("by_id", {}),
             by_name=db_map_data.get("by_name", {}),
+            dataset_suffix_replacement=db_map_data.get("dataset_suffix_replacement", {}),
         )
 
         # Initialize mapping and context
         self._id_mapper = IDMapper(self.manifest, self.db_map, self.client)
+
+        schema_rename = self._build_schema_rename_map()
         self._query_remapper = QueryRemapper(
             id_mapper=self._id_mapper,
             unmapped_ids_mode=self.config.unmapped_ids,
+            schema_rename=schema_rename,
         )
 
         logger.info("Export package loaded successfully.")
+
+    def _build_schema_rename_map(self) -> dict[str, str] | None:
+        """Build schema rename map by scanning manifest database_metadata.
+
+        Uses the dataset_suffix_replacement from db_map.json. Collects all distinct
+        schema names from the manifest, filters those ending with each source suffix,
+        and generates old->new pairs by swapping the suffix.
+
+        Returns:
+            A mapping of old schema names to new schema names, or None if no renames.
+
+        Raises:
+            MigrationError: If suffix replacement entries are invalid.
+        """
+        if not self.db_map or not self.db_map.dataset_suffix_replacement:
+            return None
+
+        if not self.manifest:
+            return None
+
+        suffix_replacements = self.db_map.dataset_suffix_replacement
+
+        # Validate suffix replacements
+        for source_suffix, target_suffix in suffix_replacements.items():
+            if not source_suffix or not target_suffix:
+                raise MigrationError(
+                    f"Invalid dataset_suffix_replacement: empty suffix in "
+                    f"'{source_suffix}' -> '{target_suffix}'"
+                )
+            if source_suffix == target_suffix:
+                raise MigrationError(
+                    f"Invalid dataset_suffix_replacement: source and target "
+                    f"suffix are identical: '{source_suffix}'"
+                )
+
+        # Collect all distinct schemas from manifest metadata
+        all_schemas: set[str] = set()
+        for db_metadata in self.manifest.database_metadata.values():
+            for table in db_metadata.get("tables", []):
+                schema = table.get("schema")
+                if schema:
+                    all_schemas.add(schema)
+
+        # For each suffix pair, find matching schemas and build rename map
+        rename_map: dict[str, str] = {}
+        for suffix_source, suffix_target in suffix_replacements.items():
+            for schema in sorted(all_schemas):
+                if schema.endswith(suffix_source):
+                    base = schema[: -len(suffix_source)]
+                    new_schema = base + suffix_target
+                    rename_map[schema] = new_schema
+
+        if rename_map:
+            logger.info(
+                f"Auto-discovered {len(rename_map)} schema rename(s) "
+                f"from dataset_suffix_replacement:"
+            )
+            for old, new in sorted(rename_map.items()):
+                logger.info(f"  {old} -> {new}")
+        else:
+            logger.warning(
+                "No schemas found matching suffixes in dataset_suffix_replacement. "
+                "No schema renames will be applied."
+            )
+
+        return rename_map if rename_map else None
 
     def _parse_manifest(self, manifest_data: dict[str, Any]) -> Manifest:
         """Parses raw manifest data into a Manifest object.
