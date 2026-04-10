@@ -12,6 +12,7 @@ import pytest
 
 from import_metabase import MetabaseImporter
 from lib.config import ImportConfig
+from lib.errors import MigrationError
 from lib.models import DatabaseMap, ImportReport, Manifest, ManifestMeta
 from lib.remapping import IDMapper, QueryRemapper
 
@@ -1719,3 +1720,140 @@ class TestLogInvalidDatabaseMapping:
             target_databases = [{"id": 10, "name": "DB1"}, {"id": 20, "name": "DB2"}]
             # Should not raise
             importer._log_invalid_database_mapping(missing_ids, target_databases)
+
+
+class TestDatabaseMapModel:
+    """Test suite for DatabaseMap dataclass with dataset_suffix_replacement."""
+
+    def test_database_map_with_dataset_suffix_replacement(self) -> None:
+        """DatabaseMap with dataset_suffix_replacement field loads correctly."""
+        db_map = DatabaseMap(
+            by_id={"1": 10},
+            by_name={"DB": 10},
+            dataset_suffix_replacement={"_prod": "_stg"},
+        )
+        assert db_map.dataset_suffix_replacement == {"_prod": "_stg"}
+
+    def test_database_map_without_dataset_suffix_replacement(self) -> None:
+        """DatabaseMap without the field defaults to empty dict."""
+        db_map = DatabaseMap(by_id={"1": 10}, by_name={"DB": 10})
+        assert db_map.dataset_suffix_replacement == {}
+
+
+class TestBuildSchemaRenameMap:
+    """Test suite for ImportService._build_schema_rename_map method."""
+
+    def _make_importer_with_manifest_and_db_map(
+        self,
+        schemas: list[str],
+        dataset_suffix_replacement: dict[str, str],
+        tmp_path: Path,
+    ) -> MetabaseImporter:
+        """Create an ImportService with manifest metadata and db_map set."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir=str(tmp_path),
+            db_map_path=str(tmp_path / "db_map.json"),
+            target_session_token="token",
+        )
+        with patch("lib.services.import_service.MetabaseClient"):
+            importer = MetabaseImporter(config)
+
+        # Set up manifest with database_metadata containing schemas
+        tables = [
+            {"id": i, "name": f"table_{i}", "schema": schema} for i, schema in enumerate(schemas)
+        ]
+        importer.manifest = Manifest(
+            meta=ManifestMeta(
+                source_url="https://source.example.com",
+                export_timestamp="2025-01-01T00:00:00",
+                tool_version="1.0.0",
+                cli_args={},
+            ),
+            databases={1: "Test DB"},
+            database_metadata={1: {"tables": tables}},
+        )
+
+        importer.db_map = DatabaseMap(
+            by_id={"1": 10},
+            by_name={"Test DB": 10},
+            dataset_suffix_replacement=dataset_suffix_replacement,
+        )
+
+        return importer
+
+    def test_build_schema_rename_map_discovers_schemas(self, tmp_path: Path) -> None:
+        """Manifest with analytics_prod, raw_prod, public + suffix _prod->_stg -> 2 pairs."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["analytics_prod", "raw_prod", "public"],
+            dataset_suffix_replacement={"_prod": "_stg"},
+            tmp_path=tmp_path,
+        )
+        result = importer._build_schema_rename_map()
+        assert result == {
+            "analytics_prod": "analytics_stg",
+            "raw_prod": "raw_stg",
+        }
+
+    def test_build_schema_rename_map_no_match(self, tmp_path: Path) -> None:
+        """No schemas with the suffix -> returns None."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["public", "main"],
+            dataset_suffix_replacement={"_prod": "_stg"},
+            tmp_path=tmp_path,
+        )
+        result = importer._build_schema_rename_map()
+        assert result is None
+
+    def test_build_schema_rename_map_no_suffix_in_db_map(self, tmp_path: Path) -> None:
+        """Empty dataset_suffix_replacement -> returns None."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["analytics_prod"],
+            dataset_suffix_replacement={},
+            tmp_path=tmp_path,
+        )
+        result = importer._build_schema_rename_map()
+        assert result is None
+
+    def test_build_schema_rename_map_multiple_suffixes(self, tmp_path: Path) -> None:
+        """Multiple suffix pairs discover schemas for each."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["analytics_prod", "raw_production", "public"],
+            dataset_suffix_replacement={"_prod": "_stg", "_production": "_staging"},
+            tmp_path=tmp_path,
+        )
+        result = importer._build_schema_rename_map()
+        assert result == {
+            "analytics_prod": "analytics_stg",
+            "raw_production": "raw_staging",
+        }
+
+    def test_build_schema_rename_map_empty_source_suffix_raises(self, tmp_path: Path) -> None:
+        """Empty source suffix raises MigrationError."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["analytics_prod"],
+            dataset_suffix_replacement={"": "_stg"},
+            tmp_path=tmp_path,
+        )
+        with pytest.raises(MigrationError, match="empty suffix"):
+            importer._build_schema_rename_map()
+
+    def test_build_schema_rename_map_empty_target_suffix_raises(self, tmp_path: Path) -> None:
+        """Empty target suffix raises MigrationError."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["analytics_prod"],
+            dataset_suffix_replacement={"_prod": ""},
+            tmp_path=tmp_path,
+        )
+        with pytest.raises(MigrationError, match="empty suffix"):
+            importer._build_schema_rename_map()
+
+    def test_build_schema_rename_map_same_suffix_raises(self, tmp_path: Path) -> None:
+        """Identical source and target suffix raises MigrationError."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["analytics_prod"],
+            dataset_suffix_replacement={"_prod": "_prod"},
+            tmp_path=tmp_path,
+        )
+        with pytest.raises(MigrationError, match="identical"):
+            importer._build_schema_rename_map()

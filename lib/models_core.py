@@ -101,6 +101,7 @@ class DatabaseMap:
 
     by_id: dict[str, int] = dataclasses.field(default_factory=dict)
     by_name: dict[str, int] = dataclasses.field(default_factory=dict)
+    dataset_suffix_replacement: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass

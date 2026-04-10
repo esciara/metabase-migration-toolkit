@@ -50,16 +50,27 @@ class QueryRemapper:
         self,
         id_mapper: IDMapper,
         unmapped_ids_mode: Literal["skip", "strict", "force"] = "skip",
+        schema_rename: dict[str, str] | None = None,
     ) -> None:
         """Initialize the QueryRemapper.
 
         Args:
             id_mapper: The IDMapper instance for resolving IDs.
             unmapped_ids_mode: How to handle unmapped IDs ('skip', 'strict', 'force').
+            schema_rename: Optional mapping of old schema names to new schema names
+                for native SQL rewriting.
         """
         self.id_mapper = id_mapper
         self.unmapped_ids_mode = unmapped_ids_mode
         self._current_warnings: list[RemapWarning] = []
+
+        # Pre-compile regex patterns for schema renaming
+        self._schema_rename_patterns: list[tuple[re.Pattern[str], str]] = []
+        if schema_rename:
+            for old_schema, new_schema in schema_rename.items():
+                pattern = re.compile(r"([\s.`(,]|^)" + re.escape(old_schema) + r"(?=\.)")
+                replacement = r"\g<1>" + new_schema
+                self._schema_rename_patterns.append((pattern, replacement))
 
     def _add_warning(
         self,
@@ -856,6 +867,7 @@ class QueryRemapper:
         # Remap SQL query string
         query_str = native.get("query")
         if isinstance(query_str, str):
+            query_str = self._apply_schema_renames(query_str)
             native["query"] = self._remap_sql_card_references(query_str)
 
         # Remap template-tags
@@ -894,12 +906,38 @@ class QueryRemapper:
             # In v57, native SQL is stored directly in "native" as a string
             native_sql = stage.get(NATIVE_KEY)
             if isinstance(native_sql, str):
+                native_sql = self._apply_schema_renames(native_sql)
                 stage[NATIVE_KEY] = self._remap_sql_card_references(native_sql)
 
             # Remap template-tags at stage level
             template_tags = stage.get(TEMPLATE_TAGS_KEY)
             if isinstance(template_tags, dict):
                 stage[TEMPLATE_TAGS_KEY] = self._remap_template_tags(template_tags, source_db_id)
+
+    def _apply_schema_renames(self, sql: str) -> str:
+        """Apply schema name renames to a native SQL string.
+
+        Uses pre-compiled regex patterns to replace schema names that appear in
+        BigQuery dataset-qualified positions (before a dot, after whitespace/dot/
+        backtick/open-paren/comma or at start of string).
+
+        Args:
+            sql: The raw SQL string to process.
+
+        Returns:
+            The SQL string with schema names replaced.
+        """
+        if not self._schema_rename_patterns:
+            return sql
+
+        result = sql
+        for pattern, replacement in self._schema_rename_patterns:
+            result = pattern.sub(replacement, result)
+
+        if result != sql:
+            logger.debug("Applied schema renames to native SQL query.")
+
+        return result
 
     def _remap_sql_card_references(self, sql: str) -> str:
         """Remaps card references in a SQL query string.
