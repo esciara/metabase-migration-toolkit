@@ -129,7 +129,7 @@ class FieldMappingError(MappingError):
             else:
                 field_part = f"field '{field_name}' (ID: {source_field_id})"
         else:
-            field_part = f"field ID {source_field_id} (not found in database metadata)"
+            field_part = f"field ID {source_field_id} (not found in source database metadata)"
         if table_name:
             table_id_suffix = f" (ID: {table_id})" if table_id else ""
             table_part = f" in table '{table_name}'{table_id_suffix}"

@@ -235,14 +235,14 @@ class TestFieldMappingError:
         assert "database 'Analytics' (ID: 2)" in msg
 
     def test_no_field_name_hint(self):
-        """Test that missing field_name adds 'not found in database metadata' hint."""
+        """Test that missing field_name adds 'not found in source database metadata' hint."""
         error = FieldMappingError(
             source_field_id=89,
             source_db_id=2,
             source_db_name="Analytics",
         )
         msg = str(error)
-        assert "not found in database metadata" in msg
+        assert "not found in source database metadata" in msg
         assert "field ID 89" in msg
 
     def test_from_supplementary_false_with_field_name_no_hint(self):
