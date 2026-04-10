@@ -8,6 +8,8 @@ Phase 3 (Tier 2): Verifies that advisory/metadata structures strip unmapped IDs
 (set to None or remove the containing structure) and record RemapWarnings.
 """
 
+import logging
+
 import pytest
 
 from lib.constants import (
@@ -34,6 +36,7 @@ def _make_id_mapper(
     table_mapping: dict[tuple[int, int], int] | None = None,
     field_mapping: dict[tuple[int, int], int] | None = None,
     card_mapping: dict[int, int] | None = None,
+    database_metadata: dict[int, dict] | None = None,
 ) -> IDMapper:
     """Build an IDMapper pre-loaded with the given mappings.
 
@@ -42,6 +45,7 @@ def _make_id_mapper(
         table_mapping: (source_db_id, source_table_id) -> target_table_id
         field_mapping: (source_db_id, source_field_id) -> target_field_id
         card_mapping: source_card_id -> target_card_id
+        database_metadata: source_db_id -> {tables: [{id, name, schema, ...}]}
     """
     db_mapping = db_mapping or {}
 
@@ -53,6 +57,7 @@ def _make_id_mapper(
             cli_args={},
         ),
         databases={src: f"DB{src}" for src in db_mapping},
+        database_metadata=database_metadata or {},
     )
     db_map = DatabaseMap(by_id={str(k): v for k, v in db_mapping.items()})
     mapper = IDMapper(manifest, db_map)
@@ -329,6 +334,113 @@ class TestForceModeKeeps:
 
         # Original card reference preserved
         assert container[SOURCE_TABLE_KEY] == f"{CARD_REF_PREFIX}123"
+
+
+# ===========================================================================
+# 4b. Enriched table warning messages
+# ===========================================================================
+
+
+def _db_metadata_with_table(
+    db_id: int, table_id: int, table_name: str, schema: str | None = None
+) -> dict[int, dict]:
+    """Build database_metadata with a single table entry."""
+    return {
+        db_id: {
+            "tables": [
+                {"id": table_id, "name": table_name, "schema": schema, "fields": []},
+            ]
+        }
+    }
+
+
+class TestTableWarningEnriched:
+    """Table-related warnings must include table name, schema, and database name."""
+
+    def test_card_table_id_warning_enriched(self, caplog: pytest.LogCaptureFixture) -> None:
+        """_remap_card_table_id warning includes table name, schema, and db name."""
+        mapper = _make_id_mapper(
+            db_mapping={2: 20},
+            database_metadata=_db_metadata_with_table(2, 33, "users", schema="public"),
+        )
+        remapper = _make_remapper(mapper, mode="skip")
+
+        data: dict = {"table_id": 33}
+        with caplog.at_level(logging.WARNING, logger="metabase_migration"):
+            remapper._remap_card_table_id(data, source_db_id=2)
+
+        assert len(caplog.records) == 1
+        msg = caplog.records[0].message
+        assert "table 'users'" in msg
+        assert "schema 'public'" in msg
+        assert "'DB2'" in msg
+
+    def test_source_table_force_warning_enriched(self, caplog: pytest.LogCaptureFixture) -> None:
+        """_remap_source_table force-mode warning includes table context."""
+        mapper = _make_id_mapper(
+            db_mapping={1: 10},
+            database_metadata=_db_metadata_with_table(1, 555, "orders", schema="sales"),
+        )
+        remapper = _make_remapper(mapper, mode="force")
+
+        query: dict = {SOURCE_TABLE_KEY: 555}
+        with caplog.at_level(logging.WARNING, logger="metabase_migration"):
+            remapper._remap_source_table(query, source_db_id=1)
+
+        assert len(caplog.records) == 1
+        msg = caplog.records[0].message
+        assert "table 'orders'" in msg
+        assert "schema 'sales'" in msg
+        assert "'DB1'" in msg
+        assert "--unmapped-ids=force" in msg
+
+    def test_join_source_table_force_warning_enriched(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_remap_joins force-mode warning includes table context."""
+        mapper = _make_id_mapper(
+            db_mapping={1: 10},
+            database_metadata=_db_metadata_with_table(1, 777, "products", schema="inventory"),
+        )
+        remapper = _make_remapper(mapper, mode="force")
+
+        query: dict = {
+            JOINS_KEY: [
+                {
+                    SOURCE_TABLE_KEY: 777,
+                    "condition": ["=", 1, 1],
+                }
+            ]
+        }
+        with caplog.at_level(logging.WARNING, logger="metabase_migration"):
+            remapper._remap_joins(query, source_db_id=1)
+
+        assert len(caplog.records) == 1
+        msg = caplog.records[0].message
+        assert "table 'products'" in msg
+        assert "schema 'inventory'" in msg
+        assert "'DB1'" in msg
+        assert "--unmapped-ids=force" in msg
+
+    def test_table_warning_graceful_without_metadata(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Warning still works when no metadata is available — falls back to IDs only."""
+        mapper = _make_id_mapper(db_mapping={1: 10})
+        # No database_metadata provided
+        remapper = _make_remapper(mapper, mode="skip")
+
+        data: dict = {"table_id": 999}
+        with caplog.at_level(logging.WARNING, logger="metabase_migration"):
+            remapper._remap_card_table_id(data, source_db_id=1)
+
+        assert len(caplog.records) == 1
+        msg = caplog.records[0].message
+        assert "source table 999" in msg
+        assert "database 1" in msg
+        # No parenthesized metadata since none is available
+        assert "(schema" not in msg
+        assert "(table" not in msg
 
 
 # ===========================================================================

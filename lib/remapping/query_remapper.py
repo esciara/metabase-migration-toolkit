@@ -225,9 +225,13 @@ class QueryRemapper:
             data["table_id"] = target_table_id
             logger.debug(f"Remapped table_id from {source_table_id} to {target_table_id}")
         else:
+            table_ctx = self.id_mapper.get_source_table_context(source_db_id, source_table_id)
+            db_name = self.id_mapper.get_source_db_name(source_db_id)
+            table_detail = f" ({table_ctx})" if table_ctx else ""
+            db_detail = f" ('{db_name}')" if db_name else ""
             logger.warning(
-                f"No table ID mapping found for source table {source_table_id} "
-                f"in database {source_db_id}. Keeping original table_id."
+                f"No table ID mapping found for source table {source_table_id}{table_detail} "
+                f"in database {source_db_id}{db_detail}. Keeping original table_id."
             )
 
     def _remap_source_table(self, query: dict[str, Any], source_db_id: int) -> None:
@@ -280,9 +284,14 @@ class QueryRemapper:
                     location="dataset_query source-table",
                 )
             else:
+                table_ctx = self.id_mapper.get_source_table_context(source_db_id, source_table)
+                db_name = self.id_mapper.get_source_db_name(source_db_id)
+                table_detail = f" ({table_ctx})" if table_ctx else ""
+                db_detail = f" ('{db_name}')" if db_name else ""
                 logger.warning(
-                    f"No table ID mapping found for source table {source_table} "
-                    f"in database {source_db_id}. Keeping original table ID "
+                    f"No table ID mapping found for source table "
+                    f"{source_table}{table_detail} "
+                    f"in database {source_db_id}{db_detail}. Keeping original table ID "
                     f"(--unmapped-ids=force)."
                 )
 
@@ -381,9 +390,16 @@ class QueryRemapper:
                             location="join clause source-table",
                         )
                     else:
+                        table_ctx = self.id_mapper.get_source_table_context(
+                            source_db_id, join_source_table
+                        )
+                        db_name = self.id_mapper.get_source_db_name(source_db_id)
+                        table_detail = f" ({table_ctx})" if table_ctx else ""
+                        db_detail = f" ('{db_name}')" if db_name else ""
                         logger.warning(
                             f"No table ID mapping found for join source-table "
-                            f"{join_source_table} in database {source_db_id}. "
+                            f"{join_source_table}{table_detail} "
+                            f"in database {source_db_id}{db_detail}. "
                             f"Keeping original (--unmapped-ids=force)."
                         )
 
