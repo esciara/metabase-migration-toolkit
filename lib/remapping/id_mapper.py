@@ -459,6 +459,24 @@ class IDMapper:
             f"column '{meta['field_name']}'{suffix}"
         )
 
+    def get_source_collection_context(self, source_collection_id: int) -> str | None:
+        """Get human-readable context for a source collection ID.
+
+        Searches the manifest collections for a matching ID and returns
+        a string with the collection name and path.
+
+        Args:
+            source_collection_id: The source collection ID.
+
+        Returns:
+            A string like "'Analytics' (path: Root/Business/Analytics)" or None.
+        """
+        for coll in self.manifest.collections:
+            if coll.id == source_collection_id:
+                path_part = f", path: {coll.path}" if coll.path else ""
+                return f"'{coll.name}'{path_part}"
+        return None
+
     def get_source_table_context(self, source_db_id: int, source_table_id: int) -> str | None:
         """Get human-readable context for a source table ID.
 

@@ -978,6 +978,7 @@ class TestImportSingleCard:
 
         # Source card has collection_id=10, but resolve_collection_id returns None
         import_context.id_mapper.resolve_collection_id.return_value = None
+        import_context.id_mapper.get_source_collection_context.return_value = None
 
         handler = CardHandler(import_context)
         card = Card(
@@ -998,7 +999,7 @@ class TestImportSingleCard:
         import_context.report.add.assert_called()
         report_item = import_context.report.add.call_args[0][0]
         assert report_item.status == "failed"
-        assert "Unmapped collection ID" in report_item.reason
+        assert "Unmapped collection ID 10" in report_item.reason
 
     def test_import_card_allowed_when_source_collection_is_none(
         self, import_context, mock_client, tmp_path

@@ -101,10 +101,15 @@ class CardHandler(BaseHandler):
             # Remap collection
             target_collection_id = self.id_mapper.resolve_collection_id(card.collection_id)
             if card.collection_id is not None and target_collection_id is None:
-                error_msg = f"Unmapped collection ID: {card.collection_id}"
+                coll_context = self.id_mapper.get_source_collection_context(card.collection_id)
+                if coll_context:
+                    coll_desc = f"collection {coll_context} (ID: {card.collection_id})"
+                else:
+                    coll_desc = f"collection ID {card.collection_id} (not found in source manifest)"
+                error_msg = f"Unmapped {coll_desc}"
                 logger.error(
                     f"Skipping card '{card.name}' (ID: {card.id}): "
-                    f"No mapping found for collection ID {card.collection_id}"
+                    f"No mapping found for {coll_desc}"
                 )
                 self._add_report_item("card", "failed", card.id, None, card.name, error_msg)
                 return
