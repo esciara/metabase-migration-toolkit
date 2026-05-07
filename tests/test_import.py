@@ -13,7 +13,7 @@ import pytest
 from import_metabase import MetabaseImporter
 from lib.config import ImportConfig
 from lib.errors import MigrationError
-from lib.models import DatabaseMap, ImportReport, Manifest, ManifestMeta
+from lib.models import Card, Collection, Dashboard, DatabaseMap, ImportReport, Manifest, ManifestMeta
 from lib.remapping import IDMapper, QueryRemapper
 
 
@@ -1723,21 +1723,31 @@ class TestLogInvalidDatabaseMapping:
 
 
 class TestDatabaseMapModel:
-    """Test suite for DatabaseMap dataclass with dataset_suffix_replacement."""
+    """Test suite for DatabaseMap dataclass with schema_suffix_replacement."""
 
-    def test_database_map_with_dataset_suffix_replacement(self) -> None:
-        """DatabaseMap with dataset_suffix_replacement field loads correctly."""
+    def test_database_map_with_schema_suffix_replacement(self) -> None:
+        """DatabaseMap with schema_suffix_replacement field loads correctly."""
         db_map = DatabaseMap(
             by_id={"1": 10},
             by_name={"DB": 10},
-            dataset_suffix_replacement={"_prod": "_stg"},
+            schema_suffix_replacement={"_prod": "_stg"},
         )
-        assert db_map.dataset_suffix_replacement == {"_prod": "_stg"}
+        assert db_map.schema_suffix_replacement == {"_prod": "_stg"}
 
-    def test_database_map_without_dataset_suffix_replacement(self) -> None:
+    def test_database_map_without_schema_suffix_replacement(self) -> None:
         """DatabaseMap without the field defaults to empty dict."""
         db_map = DatabaseMap(by_id={"1": 10}, by_name={"DB": 10})
-        assert db_map.dataset_suffix_replacement == {}
+        assert db_map.schema_suffix_replacement == {}
+        assert db_map.extra_schemas == []
+
+    def test_database_map_with_extra_schemas(self) -> None:
+        """DatabaseMap with extra_schemas field loads correctly."""
+        db_map = DatabaseMap(
+            by_id={"1": 10},
+            by_name={"DB": 10},
+            extra_schemas=["raw_prod", "ext_prod"],
+        )
+        assert db_map.extra_schemas == ["raw_prod", "ext_prod"]
 
 
 class TestBuildSchemaRenameMap:
@@ -1746,8 +1756,9 @@ class TestBuildSchemaRenameMap:
     def _make_importer_with_manifest_and_db_map(
         self,
         schemas: list[str],
-        dataset_suffix_replacement: dict[str, str],
+        schema_suffix_replacement: dict[str, str],
         tmp_path: Path,
+        extra_schemas: list[str] | None = None,
     ) -> MetabaseImporter:
         """Create an ImportService with manifest metadata and db_map set."""
         config = ImportConfig(
@@ -1756,6 +1767,7 @@ class TestBuildSchemaRenameMap:
             db_map_path=str(tmp_path / "db_map.json"),
             target_session_token="token",
         )
+
         with patch("lib.services.import_service.MetabaseClient"):
             importer = MetabaseImporter(config)
 
@@ -1777,7 +1789,8 @@ class TestBuildSchemaRenameMap:
         importer.db_map = DatabaseMap(
             by_id={"1": 10},
             by_name={"Test DB": 10},
-            dataset_suffix_replacement=dataset_suffix_replacement,
+            schema_suffix_replacement=schema_suffix_replacement,
+            extra_schemas=extra_schemas or [],
         )
 
         return importer
@@ -1786,7 +1799,7 @@ class TestBuildSchemaRenameMap:
         """Manifest with analytics_prod, raw_prod, public + suffix _prod->_stg -> 2 pairs."""
         importer = self._make_importer_with_manifest_and_db_map(
             schemas=["analytics_prod", "raw_prod", "public"],
-            dataset_suffix_replacement={"_prod": "_stg"},
+            schema_suffix_replacement={"_prod": "_stg"},
             tmp_path=tmp_path,
         )
         result = importer._build_schema_rename_map()
@@ -1799,17 +1812,17 @@ class TestBuildSchemaRenameMap:
         """No schemas with the suffix -> returns None."""
         importer = self._make_importer_with_manifest_and_db_map(
             schemas=["public", "main"],
-            dataset_suffix_replacement={"_prod": "_stg"},
+            schema_suffix_replacement={"_prod": "_stg"},
             tmp_path=tmp_path,
         )
         result = importer._build_schema_rename_map()
         assert result is None
 
     def test_build_schema_rename_map_no_suffix_in_db_map(self, tmp_path: Path) -> None:
-        """Empty dataset_suffix_replacement -> returns None."""
+        """Empty schema_suffix_replacement -> returns None."""
         importer = self._make_importer_with_manifest_and_db_map(
             schemas=["analytics_prod"],
-            dataset_suffix_replacement={},
+            schema_suffix_replacement={},
             tmp_path=tmp_path,
         )
         result = importer._build_schema_rename_map()
@@ -1819,7 +1832,7 @@ class TestBuildSchemaRenameMap:
         """Multiple suffix pairs discover schemas for each."""
         importer = self._make_importer_with_manifest_and_db_map(
             schemas=["analytics_prod", "raw_production", "public"],
-            dataset_suffix_replacement={"_prod": "_stg", "_production": "_staging"},
+            schema_suffix_replacement={"_prod": "_stg", "_production": "_staging"},
             tmp_path=tmp_path,
         )
         result = importer._build_schema_rename_map()
@@ -1828,11 +1841,357 @@ class TestBuildSchemaRenameMap:
             "raw_production": "raw_staging",
         }
 
+    def test_build_schema_rename_map_with_extra_schemas(self, tmp_path: Path) -> None:
+        """Extra schemas from db_map are included in rename discovery."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["analytics_prod"],
+            schema_suffix_replacement={"_prod": "_stg"},
+            tmp_path=tmp_path,
+            extra_schemas=["raw_prod"],
+        )
+        result = importer._build_schema_rename_map()
+        assert result == {
+            "analytics_prod": "analytics_stg",
+            "raw_prod": "raw_stg",
+        }
+
+    def test_build_schema_rename_map_extra_schemas_no_match(self, tmp_path: Path) -> None:
+        """Extra schemas that don't match any suffix are ignored."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["analytics_prod"],
+            schema_suffix_replacement={"_prod": "_stg"},
+            tmp_path=tmp_path,
+            extra_schemas=["public"],
+        )
+        result = importer._build_schema_rename_map()
+        assert result == {"analytics_prod": "analytics_stg"}
+
+    def test_build_schema_rename_map_extra_schemas_empty(self, tmp_path: Path) -> None:
+        """Empty extra_schemas has no effect."""
+        importer = self._make_importer_with_manifest_and_db_map(
+            schemas=["analytics_prod"],
+            schema_suffix_replacement={"_prod": "_stg"},
+            tmp_path=tmp_path,
+            extra_schemas=[],
+        )
+        result = importer._build_schema_rename_map()
+        assert result == {"analytics_prod": "analytics_stg"}
+
+
+class TestFilterManifestByCardIds:
+    """Test suite for _filter_manifest_by_card_ids method."""
+
+    def _make_importer(self, tmp_path, card_ids):
+        """Helper to create an ImportService with card_ids and a mock manifest."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir=str(tmp_path),
+            db_map_path=str(tmp_path / "db_map.json"),
+            target_session_token="token",
+            card_ids=card_ids,
+        )
+        with patch("lib.services.import_service.MetabaseClient"):
+            importer = MetabaseImporter(config)
+        return importer
+
+    def _write_card_json(self, tmp_path, file_path, card_data):
+        """Write a card JSON file to the export directory."""
+        full_path = tmp_path / file_path
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        import json
+
+        with open(full_path, "w") as f:
+            json.dump(card_data, f)
+
+    def test_filter_single_card_no_deps(self, tmp_path):
+        """Test filtering with a single card that has no dependencies."""
+        importer = self._make_importer(tmp_path, card_ids=[100])
+
+        # Write card JSON (no deps)
+        self._write_card_json(
+            tmp_path,
+            "coll_a/card_100.json",
+            {"dataset_query": {"type": "query", "database": 1, "query": {"source-table": 1}}},
+        )
+
+        importer.manifest = Manifest(
+            meta=ManifestMeta(
+                source_url="https://src.example.com",
+                export_timestamp="2025-01-01T00:00:00",
+                tool_version="1.0.0",
+                cli_args={},
+            ),
+            collections=[
+                Collection(id=10, name="Coll A", slug="coll-a", parent_id=None, path="coll_a"),
+            ],
+            cards=[
+                Card(id=100, name="Card 100", collection_id=10, database_id=1, file_path="coll_a/card_100.json"),
+                Card(id=200, name="Card 200", collection_id=10, database_id=1, file_path="coll_a/card_200.json"),
+            ],
+        )
+
+        cards, collections, dashboards = importer._filter_manifest_by_card_ids()
+
+        assert len(cards) == 1
+        assert cards[0].id == 100
+        assert len(collections) == 1
+        assert collections[0].id == 10
+        assert dashboards == []
+
+    def test_filter_card_with_dependency(self, tmp_path):
+        """Test that card dependencies are auto-included."""
+        importer = self._make_importer(tmp_path, card_ids=[100])
+
+        # Card 100 depends on card 50 (via source-table: "card__50")
+        self._write_card_json(
+            tmp_path,
+            "coll_a/card_100.json",
+            {"dataset_query": {"type": "query", "database": 1, "query": {"source-table": "card__50"}}},
+        )
+        self._write_card_json(
+            tmp_path,
+            "coll_a/card_50.json",
+            {"dataset_query": {"type": "query", "database": 1, "query": {"source-table": 1}}},
+        )
+
+        importer.manifest = Manifest(
+            meta=ManifestMeta(
+                source_url="https://src.example.com",
+                export_timestamp="2025-01-01T00:00:00",
+                tool_version="1.0.0",
+                cli_args={},
+            ),
+            collections=[
+                Collection(id=10, name="Coll A", slug="coll-a", parent_id=None, path="coll_a"),
+            ],
+            cards=[
+                Card(id=50, name="Card 50", collection_id=10, database_id=1, file_path="coll_a/card_50.json"),
+                Card(id=100, name="Card 100", collection_id=10, database_id=1, file_path="coll_a/card_100.json"),
+                Card(id=200, name="Card 200", collection_id=10, database_id=1, file_path="coll_a/card_200.json"),
+            ],
+        )
+
+        cards, collections, dashboards = importer._filter_manifest_by_card_ids()
+
+        card_ids = {c.id for c in cards}
+        assert card_ids == {50, 100}  # 200 excluded, 50 auto-included
+        assert len(collections) == 1
+        assert dashboards == []
+
+    def test_filter_card_ancestor_collection_chain(self, tmp_path):
+        """Test that ancestor collection chain is included."""
+        importer = self._make_importer(tmp_path, card_ids=[100])
+
+        self._write_card_json(
+            tmp_path,
+            "root_coll/parent_coll/leaf_coll/card_100.json",
+            {"dataset_query": {"type": "query", "database": 1, "query": {"source-table": 1}}},
+        )
+
+        importer.manifest = Manifest(
+            meta=ManifestMeta(
+                source_url="https://src.example.com",
+                export_timestamp="2025-01-01T00:00:00",
+                tool_version="1.0.0",
+                cli_args={},
+            ),
+            collections=[
+                Collection(id=1, name="Root Coll", slug="root-coll", parent_id=None, path="root_coll"),
+                Collection(id=2, name="Parent Coll", slug="parent-coll", parent_id=1, path="root_coll/parent_coll"),
+                Collection(id=3, name="Leaf Coll", slug="leaf-coll", parent_id=2, path="root_coll/parent_coll/leaf_coll"),
+                Collection(id=99, name="Unrelated", slug="unrelated", parent_id=None, path="unrelated"),
+            ],
+            cards=[
+                Card(id=100, name="Card 100", collection_id=3, database_id=1, file_path="root_coll/parent_coll/leaf_coll/card_100.json"),
+            ],
+        )
+
+        cards, collections, dashboards = importer._filter_manifest_by_card_ids()
+
+        coll_ids = {c.id for c in collections}
+        assert coll_ids == {1, 2, 3}  # Full ancestor chain, excludes unrelated (99)
+
+    def test_filter_missing_card_id_warns(self, tmp_path, caplog):
+        """Test that missing card IDs produce a warning, not an error."""
+        importer = self._make_importer(tmp_path, card_ids=[999])
+
+        importer.manifest = Manifest(
+            meta=ManifestMeta(
+                source_url="https://src.example.com",
+                export_timestamp="2025-01-01T00:00:00",
+                tool_version="1.0.0",
+                cli_args={},
+            ),
+            collections=[],
+            cards=[
+                Card(id=100, name="Card 100", collection_id=None, database_id=1, file_path="card_100.json"),
+            ],
+        )
+
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            cards, collections, dashboards = importer._filter_manifest_by_card_ids()
+
+        assert len(cards) == 0
+        assert len(collections) == 0
+        assert "999" in caplog.text
+
+    def test_filter_transitive_dependencies(self, tmp_path):
+        """Test that transitive dependencies (A→B→C) are all included."""
+        importer = self._make_importer(tmp_path, card_ids=[100])
+
+        # A (100) → B (50) → C (25)
+        self._write_card_json(
+            tmp_path,
+            "card_100.json",
+            {"dataset_query": {"type": "query", "database": 1, "query": {"source-table": "card__50"}}},
+        )
+        self._write_card_json(
+            tmp_path,
+            "card_50.json",
+            {"dataset_query": {"type": "query", "database": 1, "query": {"source-table": "card__25"}}},
+        )
+        self._write_card_json(
+            tmp_path,
+            "card_25.json",
+            {"dataset_query": {"type": "query", "database": 1, "query": {"source-table": 1}}},
+        )
+
+        importer.manifest = Manifest(
+            meta=ManifestMeta(
+                source_url="https://src.example.com",
+                export_timestamp="2025-01-01T00:00:00",
+                tool_version="1.0.0",
+                cli_args={},
+            ),
+            collections=[],
+            cards=[
+                Card(id=25, name="Card 25", collection_id=None, database_id=1, file_path="card_25.json"),
+                Card(id=50, name="Card 50", collection_id=None, database_id=1, file_path="card_50.json"),
+                Card(id=100, name="Card 100", collection_id=None, database_id=1, file_path="card_100.json"),
+            ],
+        )
+
+        cards, collections, dashboards = importer._filter_manifest_by_card_ids()
+
+        card_ids = {c.id for c in cards}
+        assert card_ids == {25, 50, 100}
+
+    def test_filter_card_root_collection(self, tmp_path):
+        """Test card with collection_id=None (root collection) needs no collections."""
+        importer = self._make_importer(tmp_path, card_ids=[100])
+
+        self._write_card_json(
+            tmp_path,
+            "card_100.json",
+            {"dataset_query": {"type": "query", "database": 1, "query": {"source-table": 1}}},
+        )
+
+        importer.manifest = Manifest(
+            meta=ManifestMeta(
+                source_url="https://src.example.com",
+                export_timestamp="2025-01-01T00:00:00",
+                tool_version="1.0.0",
+                cli_args={},
+            ),
+            collections=[
+                Collection(id=1, name="Some Collection", slug="some-collection", parent_id=None, path="some_coll"),
+            ],
+            cards=[
+                Card(id=100, name="Card 100", collection_id=None, database_id=1, file_path="card_100.json"),
+            ],
+        )
+
+        cards, collections, dashboards = importer._filter_manifest_by_card_ids()
+
+        assert len(cards) == 1
+        assert len(collections) == 0  # Card is in root, no collections needed
+
+
+class TestApplyManifestFilters:
+    """Test suite for _apply_manifest_filters method."""
+
+    def test_no_filters_returns_full_manifest(self, tmp_path):
+        """Test that no filters returns the full manifest."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir=str(tmp_path),
+            db_map_path=str(tmp_path / "db_map.json"),
+            target_session_token="token",
+        )
+        with patch("lib.services.import_service.MetabaseClient"):
+            importer = MetabaseImporter(config)
+
+        manifest = Manifest(
+            meta=ManifestMeta(
+                source_url="https://src.example.com",
+                export_timestamp="2025-01-01T00:00:00",
+                tool_version="1.0.0",
+                cli_args={},
+            ),
+            collections=[Collection(id=1, name="Coll", slug="coll", parent_id=None, path="coll")],
+            cards=[Card(id=100, name="Card", collection_id=1, database_id=1, file_path="card.json")],
+        )
+
+        # When no filters are applied
+        importer.manifest = manifest
+        cards, collections, dashboards = importer._apply_manifest_filters(manifest)
+
+        # Should return the full manifest unchanged
+        assert cards == manifest.cards
+        assert collections == manifest.collections
+
+
+# Re-add the TestBuildSchemaRenameMap tests that got moved
+class TestBuildSchemaRenameMapValidation:
+    """Additional validation tests for _build_schema_rename_map."""
+
+    def _make_importer_with_manifest_and_db_map(
+        self,
+        schemas: list[str],
+        schema_suffix_replacement: dict[str, str],
+        tmp_path: Path,
+    ) -> MetabaseImporter:
+        """Create an ImportService with manifest metadata and db_map set."""
+        config = ImportConfig(
+            target_url="https://example.com",
+            export_dir=str(tmp_path),
+            db_map_path=str(tmp_path / "db_map.json"),
+            target_session_token="token",
+        )
+
+        with patch("lib.services.import_service.MetabaseClient"):
+            importer = MetabaseImporter(config)
+
+        # Set up manifest with database_metadata containing schemas
+        tables = [
+            {"id": i, "name": f"table_{i}", "schema": schema} for i, schema in enumerate(schemas)
+        ]
+        importer.manifest = Manifest(
+            meta=ManifestMeta(
+                source_url="https://source.example.com",
+                export_timestamp="2025-01-01T00:00:00",
+                tool_version="1.0.0",
+                cli_args={},
+            ),
+            databases={1: "Test DB"},
+            database_metadata={1: {"tables": tables}},
+        )
+
+        importer.db_map = DatabaseMap(
+            by_id={"1": 10},
+            by_name={"Test DB": 10},
+            schema_suffix_replacement=schema_suffix_replacement,
+        )
+
+        return importer
+
     def test_build_schema_rename_map_empty_source_suffix_raises(self, tmp_path: Path) -> None:
         """Empty source suffix raises MigrationError."""
         importer = self._make_importer_with_manifest_and_db_map(
             schemas=["analytics_prod"],
-            dataset_suffix_replacement={"": "_stg"},
+            schema_suffix_replacement={"": "_stg"},
             tmp_path=tmp_path,
         )
         with pytest.raises(MigrationError, match="empty suffix"):
@@ -1842,7 +2201,7 @@ class TestBuildSchemaRenameMap:
         """Empty target suffix raises MigrationError."""
         importer = self._make_importer_with_manifest_and_db_map(
             schemas=["analytics_prod"],
-            dataset_suffix_replacement={"_prod": ""},
+            schema_suffix_replacement={"_prod": ""},
             tmp_path=tmp_path,
         )
         with pytest.raises(MigrationError, match="empty suffix"):
@@ -1852,8 +2211,9 @@ class TestBuildSchemaRenameMap:
         """Identical source and target suffix raises MigrationError."""
         importer = self._make_importer_with_manifest_and_db_map(
             schemas=["analytics_prod"],
-            dataset_suffix_replacement={"_prod": "_prod"},
+            schema_suffix_replacement={"_prod": "_prod"},
             tmp_path=tmp_path,
         )
         with pytest.raises(MigrationError, match="identical"):
             importer._build_schema_rename_map()
+
